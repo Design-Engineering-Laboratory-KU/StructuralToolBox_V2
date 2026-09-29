@@ -43,7 +43,9 @@ function Prepare-PayloadFromZip {
             Remove-Item -LiteralPath $PayloadDir -Recurse -Force
         }
         Move-Item -LiteralPath $top.FullName -Destination $PayloadDir
-        Get-ChildItem -LiteralPath $StagingRoot -Exclude 'Payload' |
+        # -Exclude は -Path に * が無いと無視され、Payload ごと消える
+        Get-ChildItem -LiteralPath $StagingRoot -Force |
+            Where-Object { $_.Name -ne 'Payload' } |
             Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
@@ -52,12 +54,24 @@ function Test-PayloadLayout {
     param([string]$Dir)
     $required = @(
         (Join-Path $Dir 'Install_once.bat'),
-        (Join-Path $Dir 'python-embed\python.exe')
+        (Join-Path $Dir 'setup_runtime.py'),
+        (Join-Path $Dir 'python-embed\python.exe'),
+        (Join-Path $Dir 'grasshopper\StbGrasshopper.gha')
     )
     foreach ($item in $required) {
         if (-not (Test-Path -LiteralPath $item)) {
             throw "Invalid payload (missing): $item"
         }
+    }
+    $wheels = Get-ChildItem -LiteralPath (Join-Path $Dir 'wheels') -Filter '*.whl' -ErrorAction SilentlyContinue
+    if (-not $wheels) {
+        throw "Invalid payload (no bundled libraries): $(Join-Path $Dir 'wheels')"
+    }
+    # The Start-menu guide shortcut needs this file, whose name is not ASCII.
+    $guides = Get-ChildItem -LiteralPath $Dir -File -Filter '*.md' |
+        Where-Object { $_.Name -notin @('README.md', 'report.md') }
+    if (-not $guides) {
+        throw "Invalid payload (student guides are missing): $Dir"
     }
 }
 

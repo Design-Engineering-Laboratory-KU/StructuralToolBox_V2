@@ -97,6 +97,7 @@ Linux で ZIP を作った場合は、その ZIP を Windows にコピーして 
 | `student/StructuralToolbox.iss` | Inno Setup 定義 |
 | `student/build_student_installer.ps1` | ZIP → Setup.exe |
 | `student/build_student_zip.sh` | Linux → ZIP |
+| `student/build_student_mac.py` | Mac インストーラ（tar.gz。Mac 上では dmg / pkg も） |
 | `Install_once.bat` | 初回セットアップ（`/silent` でインストーラから実行） |
 | `Start Structural Toolbox.bat` | ZIP 版の毎回起動 |
 
@@ -104,7 +105,25 @@ Linux で ZIP を作った場合は、その ZIP を Windows にコピーして 
 
 ## Mac 学生
 
-Windows 用 ZIP / Setup.exe は使えません。Mac 用は別途検討してください。
+Windows 用 ZIP / Setup.exe は使えません。Mac 用は別のインストーラです。
+
+```powershell
+.\student\build_student_mac.ps1
+```
+
+出力: `student/dist/StructuralToolbox_Mac_Setup_YYYYMMDD.tar.gz`
+
+Mac 上で同じスクリプトを実行すると `.dmg` と `.pkg` も作られます。
+
+```bash
+./student/build_student_installer_mac.sh
+```
+
+学生手順: [docs/学生用_インストール_Mac.md](../docs/学生用_インストール_Mac.md)  
+教員手順: [docs/教員用_インストーラ作成_Mac.md](../docs/教員用_インストーラ作成_Mac.md)
+
+インストール先: `~/Library/Application Support/StructuralToolbox`  
+起動: アプリケーションフォルダ / デスクトップの **Structural Toolbox**
 
 ## 更新時
 

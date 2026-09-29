@@ -17,11 +17,12 @@ namespace StbGrasshopper
         protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
             pManager.AddParameter(new StbModelParameter(), "STb Model", "STb Model", "Assembled STb Model to analyze.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Python Exe", "Py", "Path to .venv\\Scripts\\python.exe. Leave empty to auto-detect.", GH_ParamAccess.item, string.Empty);
-            pManager.AddTextParameter("Repo Root", "Root", "STB repository root used as the Python working directory.", GH_ParamAccess.item);
+            pManager.AddTextParameter("Python Exe", "Py", "Path to the Structural Toolbox .venv Python. Leave empty to auto-detect.", GH_ParamAccess.item, string.Empty);
+            pManager.AddTextParameter("Repo Root", "Root", "Install or repository folder. Leave empty to auto-detect.", GH_ParamAccess.item, string.Empty);
             pManager.AddBooleanParameter("Run", "Run", "Set true to run the solver.", GH_ParamAccess.item, false);
             pManager.AddTextParameter("Out Path", "Out", "Optional .out path. Empty uses the temp folder.", GH_ParamAccess.item, string.Empty);
             pManager.AddIntegerParameter("Load Case", "LC", "Use -1 to keep all load cases in Results.", GH_ParamAccess.item, -1);
+            pManager[2].Optional = true;
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -42,12 +43,12 @@ namespace StbGrasshopper
             if (!StbModelGooUtil.TryGetModel(da, 0, out model)) return;
 
             string pythonExe = string.Empty;
-            string repoRoot = null;
+            string repoRoot = string.Empty;
             bool run = false;
             string outPath = string.Empty;
             int loadCase = -1;
             da.GetData(1, ref pythonExe);
-            if (!da.GetData(2, ref repoRoot)) return;
+            da.GetData(2, ref repoRoot);
             da.GetData(3, ref run);
             da.GetData(4, ref outPath);
             da.GetData(5, ref loadCase);

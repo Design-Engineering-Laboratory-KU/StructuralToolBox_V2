@@ -17,7 +17,7 @@ Multi-machine / Dropbox notes: [docs/setup_venv.md](docs/setup_venv.md).
 
 ### Student distribution (Windows 11, policy B)
 
-For classroom/home use without Git: build a ZIP on Linux with [student/build_student_zip.sh](student/build_student_zip.sh) (bundles **Windows embeddable Python**). Students run `Install_once.bat` once, then `Start Structural Toolbox.bat` — no separate Python install. Guide: [docs/学生用_はじめ方_Windows.md](docs/学生用_はじめ方_Windows.md). Instructor notes: [student/README.md](student/README.md).
+For classroom/home use without Git: build a Windows Setup.exe ([student/build_student_installer.ps1](student/build_student_installer.ps1), bundles **Windows embeddable Python**) or a Mac installer ([student/build_student_mac.ps1](student/build_student_mac.ps1)). Students do not install Python themselves. Guides: [docs/学生用_インストール_Windows.md](docs/学生用_インストール_Windows.md), [docs/学生用_インストール_Mac.md](docs/学生用_インストール_Mac.md). Instructor notes: [student/README.md](student/README.md).
 
 ## Command-line interface (Phase 1)
 

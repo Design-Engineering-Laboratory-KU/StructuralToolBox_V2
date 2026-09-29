@@ -36,9 +36,20 @@ namespace StbGrasshopper
             }
 
             datPath = Path.GetFullPath(datPath);
-            repoRoot = Path.GetFullPath(repoRoot);
-            pythonExe = ResolvePythonExe(pythonExe, repoRoot);
             outPath = string.IsNullOrWhiteSpace(outPath) ? DefaultOutputPath(datPath) : Path.GetFullPath(outPath);
+
+            string resolveError;
+            if (!TryResolveInterpreter(ref pythonExe, ref repoRoot, out resolveError))
+            {
+                return new StbAnalyzeResult
+                {
+                    Success = false,
+                    ExitCode = 1,
+                    OutPath = outPath,
+                    Stderr = resolveError,
+                    Summary = "Structural Toolbox Python was not found."
+                };
+            }
 
             if (!File.Exists(datPath))
             {
@@ -108,19 +119,132 @@ namespace StbGrasshopper
                         + parsed.Elements.Count
                         + "; displacements="
                         + parsed.Displacements.Count
+                        + "; python="
+                        + pythonExe
                 };
             }
         }
 
-        private static string ResolvePythonExe(string pythonExe, string repoRoot)
+        /// <summary>
+        /// Finds the Python that ships with Structural Toolbox. A Python the
+        /// student installed for another course would lack the solver
+        /// libraries, so this never falls back to one found on PATH.
+        /// </summary>
+        private static bool TryResolveInterpreter(
+            ref string pythonExe,
+            ref string repoRoot,
+            out string error)
         {
+            error = null;
+
             if (!string.IsNullOrWhiteSpace(pythonExe))
             {
-                return pythonExe;
+                pythonExe = Path.GetFullPath(pythonExe);
+                if (!File.Exists(pythonExe))
+                {
+                    error = "Python Exe was set but does not exist: " + pythonExe;
+                    return false;
+                }
+                if (string.IsNullOrWhiteSpace(repoRoot))
+                {
+                    repoRoot = InstallRootOf(pythonExe);
+                }
+                repoRoot = Path.GetFullPath(repoRoot);
+                return true;
             }
 
-            var venvPython = Path.Combine(repoRoot, ".venv", "Scripts", "python.exe");
-            return File.Exists(venvPython) ? venvPython : "python";
+            foreach (var root in CandidateRoots(repoRoot))
+            {
+                var found = VenvPython(root);
+                if (found != null)
+                {
+                    pythonExe = found;
+                    repoRoot = root;
+                    return true;
+                }
+            }
+
+            error =
+                "Structural Toolbox Python was not found. Run the first-time setup "
+                + "(Install_once) from the install folder, or set Python Exe to the "
+                + VenvRelativePath()
+                + " of the install. Looked in: "
+                + string.Join("; ", CandidateRoots(repoRoot));
+            return false;
+        }
+
+        private static string[] CandidateRoots(string repoRoot)
+        {
+            var roots = new System.Collections.Generic.List<string>();
+
+            if (!string.IsNullOrWhiteSpace(repoRoot))
+            {
+                roots.Add(Path.GetFullPath(repoRoot));
+            }
+
+            // Install folder used by the student installers.
+            var appSupport = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrWhiteSpace(appSupport))
+            {
+                roots.Add(Path.Combine(appSupport, "StructuralToolbox"));
+            }
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrWhiteSpace(home))
+            {
+                roots.Add(Path.Combine(home, "Library", "Application Support", "StructuralToolbox"));
+            }
+
+            // Folder this .gha was loaded from, for developer checkouts.
+            var here = Path.GetDirectoryName(typeof(StbProcessRunner).Assembly.Location);
+            while (!string.IsNullOrWhiteSpace(here))
+            {
+                roots.Add(here);
+                here = Path.GetDirectoryName(here);
+            }
+
+            var unique = new System.Collections.Generic.List<string>();
+            foreach (var root in roots)
+            {
+                if (!string.IsNullOrWhiteSpace(root) && !unique.Contains(root))
+                {
+                    unique.Add(root);
+                }
+            }
+            return unique.ToArray();
+        }
+
+        private static string VenvPython(string root)
+        {
+            var candidates = new[]
+            {
+                Path.Combine(root, ".venv", "Scripts", "python.exe"),
+                Path.Combine(root, ".venv", "bin", "python3"),
+                Path.Combine(root, ".venv", "bin", "python")
+            };
+            foreach (var candidate in candidates)
+            {
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+            return null;
+        }
+
+        private static string VenvRelativePath()
+        {
+            return Path.DirectorySeparatorChar == '\\'
+                ? ".venv\\Scripts\\python.exe"
+                : ".venv/bin/python3";
+        }
+
+        private static string InstallRootOf(string pythonExe)
+        {
+            // <root>/.venv/Scripts/python.exe or <root>/.venv/bin/python3
+            var dir = Path.GetDirectoryName(pythonExe);
+            var venv = Path.GetDirectoryName(dir);
+            var root = Path.GetDirectoryName(venv);
+            return string.IsNullOrWhiteSpace(root) ? Path.GetDirectoryName(pythonExe) : root;
         }
 
         private static string DefaultOutputPath(string datPath)

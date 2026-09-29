@@ -113,6 +113,21 @@ function Install-EmbedPython {
     Write-Host "OK: python-embed ($Version)"
 }
 
+function Include-SetupScript {
+    param([string]$Dest)
+    Copy-Item -LiteralPath (Join-Path $StudentDir 'setup_runtime.py') -Destination (Join-Path $Dest 'setup_runtime.py') -Force
+}
+
+function Include-Wheels {
+    param([string]$Dest)
+    $script = Join-Path $StudentDir 'fetch_wheels.py'
+    Write-Host 'Collecting bundled libraries (wheels) ...'
+    & py -3 $script windows --payload $Dest
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Failed to collect wheels for the installer payload'
+    }
+}
+
 function Include-GrasshopperPlugin {
     param([string]$Dest)
     $project = Join-Path $RepoRoot 'grasshopper\gha\StbGrasshopper.csproj'
@@ -142,27 +157,38 @@ New-Item -ItemType Directory -Path (Split-Path -Parent $WorkDir) -Force | Out-Nu
 
 Copy-StudentPayload -Dest $WorkDir
 Install-EmbedPython -TargetDir $WorkDir
+Include-SetupScript -Dest $WorkDir
+Include-Wheels -Dest $WorkDir
 Include-GrasshopperPlugin -Dest $WorkDir
 
-foreach ($f in @('Install_once.bat', 'Start Structural Toolbox.bat')) {
+foreach ($f in @('Install_once.bat', 'Start Structural Toolbox.bat', 'setup_runtime.py')) {
     if (-not (Test-Path -LiteralPath (Join-Path $WorkDir $f))) {
         throw "missing required file: $f"
     }
 }
 
-$docsInPayload = Join-Path $WorkDir 'docs'
-Get-ChildItem -LiteralPath $docsInPayload -File -ErrorAction SilentlyContinue | ForEach-Object {
-    if ($_.Name -like '*インストール*Windows.md') {
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $WorkDir 'はじめ方_インストーラ版.md') -Force
-    }
-    elseif ($_.Name -like '*はじめ方*Windows.md' -and $_.Name -notlike '*インストール*') {
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $WorkDir 'はじめ方_Windows.md') -Force
-    }
+& py -3 (Join-Path $StudentDir 'stage_docs.py') windows --payload $WorkDir
+if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to stage the student guides'
 }
 
 if (-not $SkipZip) {
     if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
-    Compress-Archive -Path $WorkDir -DestinationPath $ZipPath -Force
+    # 展開直後の python312.zip をウイルス対策が掴むことがある
+    $zipOk = $false
+    for ($try = 1; $try -le 5; $try++) {
+        try {
+            Compress-Archive -Path $WorkDir -DestinationPath $ZipPath -Force -ErrorAction Stop
+            $zipOk = $true
+            break
+        } catch {
+            if ($try -eq 5) { throw }
+            Write-Host "ZIP is locked, retrying ($try/5)..."
+            Start-Sleep -Seconds 3
+            if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue }
+        }
+    }
+    if (-not $zipOk) { throw "Failed to create ZIP: $ZipPath" }
     $sizeMb = [math]::Round((Get-Item -LiteralPath $ZipPath).Length / 1MB, 1)
     Write-Host "ZIP: $ZipPath ($sizeMb MB)"
 }

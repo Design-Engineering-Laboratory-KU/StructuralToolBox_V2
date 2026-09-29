@@ -4,13 +4,17 @@
 
 ---
 
+配布物には **Python 本体**と**解析ライブラリ（wheels）**が入るため、学生側はインターネットなしでインストールできます。
+
 ## 必要なもの
 
 | 環境 | 用途 |
 | --- | --- |
-| **Linux**（または WSL） | 同梱 Python 入り ZIP の作成（従来どおり） |
-| **Windows 11** | Inno Setup で Setup.exe をビルド |
+| **Windows 11** | ZIP / Setup.exe のビルド（推奨） |
+| **Linux**（または WSL） | ZIP のみ作成する従来経路 |
 | [Inno Setup 6](https://jrsoftware.org/isdl.php) | 無料・インストールのみ |
+| **インターネット**（ビルド時のみ） | Python と wheels の取得（`student/dist/_cache/` にキャッシュ） |
+| **.NET SDK + Rhino 8**（任意） | Grasshopper プラグイン `.gha` の同梱
 
 ---
 
@@ -56,7 +60,9 @@ PowerShell でリポジトリ直下から:
 .\student\build_student_installer.ps1 -ZipPath student\dist\StructuralToolbox_Windows_20260605.zip
 ```
 
-出力例: `student/dist/StructuralToolbox_Setup_20260605.exe`（ZIP よりやや大きい）
+出力例: `student/dist/StructuralToolbox_Setup_20260929.exe`（約 75 MB）
+
+`build_student_installer.ps1` は、ペイロードに `Install_once.bat` / `setup_runtime.py` / `python-embed` / `wheels` / `.gha` / 学生向け手順書が揃っているかを確認してからビルドします。
 
 ### 3. 学生へ配布
 
@@ -94,8 +100,18 @@ Rhino/Grasshopperが起動中でコピーできない場合は、Rhinoを終了�
 | 症状 | 対処 |
 | --- | --- |
 | Inno Setup が見つからない | 公式サイトからインストール後、PowerShell を開き直す |
-| インストール中に失敗 | 学生 PC のインターネットを確認。`%LOCALAPPDATA%\StructuralToolbox\install.log` を確認 |
+| インストール中に失敗 | `%LOCALAPPDATA%\StructuralToolbox\install.log` を確認 |
 | セットアップのみ再実行 | スタートメニュー「初回セットアップを再実行」または `Install_once.bat` |
+| 専用 Python を使っているか確認 | インストール先で `.venv\Scripts\stb.exe doctor`（`bundled: yes` が正常） |
+
+### インストーラ動作確認（教員機）
+
+```powershell
+$dir = "$env:TEMP\stb_verify"
+Start-Process .\student\dist\StructuralToolbox_Setup_20260929.exe -ArgumentList "/VERYSILENT","/DIR=$dir" -Wait
+& "$dir\.venv\Scripts\stb.exe" doctor --require-bundled
+& "$dir\unins000.exe" /VERYSILENT
+```
 
 ---
 
@@ -105,6 +121,9 @@ Rhino/Grasshopperが起動中でコピーできない場合は、Rhinoを終了�
 | --- | --- |
 | `student/StructuralToolbox.iss` | Inno Setup 定義 |
 | `student/build_student_installer.ps1` | ZIP → Setup.exe ビルド |
+| `student/fetch_wheels.py` | 同梱ライブラリ（wheels）の取得 |
+| `student/setup_runtime.py` | 学生機での初回セットアップ本体 |
+| `student/stage_docs.py` | 学生向け手順書の配置 |
 | `grasshopper\StbGrasshopper.gha` | インストーラーに同梱するGrasshopperプラグイン |
 | `student/installer_info_before.txt` | インストール前の説明 |
 | `student/installer_info_after.txt` | 完了後の説明 |

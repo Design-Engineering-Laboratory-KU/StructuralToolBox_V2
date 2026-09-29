@@ -54,6 +54,37 @@ def cmd_version(args):
     return EXIT_OK
 
 
+def cmd_doctor(args):
+    _ensure_project_root_on_path()
+    from stb_engine import runtime
+
+    print("stb " + _STB_VERSION)
+    for line in runtime.describe():
+        print("  " + line)
+
+    missing = []
+    print("  libraries:")
+    for name in ("numpy", "scipy", "shapely", "fastapi", "uvicorn", "httpx"):
+        try:
+            mod = __import__(name)
+        except ImportError:
+            missing.append(name)
+            print("    {0:<10} (missing)".format(name))
+            continue
+        print("    {0:<10} {1}".format(name, getattr(mod, "__version__", "?")))
+
+    if missing:
+        _stderr("Missing libraries: " + ", ".join(missing))
+        _stderr("Re-run the first-time setup (Install_once) to repair the install.")
+        return EXIT_INPUT
+
+    if not runtime.is_bundled() and getattr(args, "require_bundled", False):
+        _stderr("This is not the bundled Python of a student install.")
+        return EXIT_INPUT
+
+    return EXIT_OK
+
+
 def cmd_validate(args):
     _ensure_project_root_on_path()
     from stb_engine import parse_input
@@ -385,6 +416,18 @@ def _build_parser():
 
     p_ver = sub.add_parser("version", parents=[common], help="Show version")
     p_ver.set_defaults(func=cmd_version)
+
+    p_doc = sub.add_parser(
+        "doctor",
+        parents=[common],
+        help="Show which Python and libraries this install uses",
+    )
+    p_doc.add_argument(
+        "--require-bundled",
+        action="store_true",
+        help="Fail unless running on the bundled Python of a student install",
+    )
+    p_doc.set_defaults(func=cmd_doctor)
 
     p_val = sub.add_parser(
         "validate",
