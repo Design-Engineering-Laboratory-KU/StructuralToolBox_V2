@@ -2,8 +2,8 @@
 
 Inputs expected in Grasshopper:
     datPath: str
-    pythonExe: str
-    repoRoot: str
+    pythonExe: str, optional (empty auto-detects the bundled Python)
+    repoRoot: str, optional (empty auto-detects the install folder)
     run: bool
     outPath: str, optional
     loadCase: int, optional
@@ -58,21 +58,66 @@ def default_output_path(dat_path: str) -> str:
     return os.path.join(out_dir, base + ".out")
 
 
-def resolve_python_exe(python_exe: Optional[str], repo_root: str) -> str:
+def candidate_roots(repo_root: Optional[str]) -> List[str]:
+    roots = []
+    if repo_root:
+        roots.append(os.path.abspath(repo_root))
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        roots.append(os.path.join(local, "StructuralToolbox"))
+    home = os.path.expanduser("~")
+    roots.append(os.path.join(home, "Library", "Application Support", "StructuralToolbox"))
+    roots.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    unique = []
+    for root in roots:
+        if root and root not in unique:
+            unique.append(root)
+    return unique
+
+
+def venv_python(root: str) -> Optional[str]:
+    for rel in (
+        os.path.join(".venv", "Scripts", "python.exe"),
+        os.path.join(".venv", "bin", "python3"),
+        os.path.join(".venv", "bin", "python"),
+    ):
+        candidate = os.path.join(root, rel)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def resolve_python_exe(python_exe: Optional[str], repo_root: Optional[str]) -> Tuple[str, str]:
+    """Return (interpreter, working directory) for the Structural Toolbox venv.
+
+    Rhino's own Python lacks the solver libraries, so a missing venv is an
+    error rather than a reason to fall back to ``sys.executable``.
+    """
     if python_exe:
-        return python_exe
+        exe = os.path.abspath(python_exe)
+        if not os.path.isfile(exe):
+            raise FileNotFoundError("Python Exe does not exist: " + exe)
+        root = repo_root or os.path.dirname(os.path.dirname(os.path.dirname(exe)))
+        return exe, os.path.abspath(root)
 
-    venv_python = os.path.join(repo_root, ".venv", "Scripts", "python.exe")
-    if os.path.isfile(venv_python):
-        return venv_python
+    roots = candidate_roots(repo_root)
+    for root in roots:
+        found = venv_python(root)
+        if found:
+            return found, root
 
-    return sys.executable or "python"
+    raise FileNotFoundError(
+        "Structural Toolbox Python was not found. Run the first-time setup "
+        "(Install_once) from the install folder, or set pythonExe. Looked in: "
+        + "; ".join(roots)
+    )
 
 
 def run_stb_analyze(
     dat_path: str,
     python_exe: Optional[str],
-    repo_root: str,
+    repo_root: Optional[str],
     run: bool,
     out_path: Optional[str] = None,
     load_case: Optional[int] = None,
@@ -92,9 +137,22 @@ def run_stb_analyze(
         )
 
     dat_path = os.path.abspath(dat_path)
-    repo_root = os.path.abspath(repo_root)
     out_path = os.path.abspath(out_path or default_output_path(dat_path))
-    exe = resolve_python_exe(python_exe, repo_root)
+    try:
+        exe, repo_root = resolve_python_exe(python_exe, repo_root)
+    except FileNotFoundError as ex:
+        return AnalyzeResult(
+            success=False,
+            exit_code=1,
+            out_path=out_path,
+            stdout="",
+            stderr=str(ex),
+            summary="Structural Toolbox Python was not found.",
+            node_ids=[],
+            load_cases=[],
+            translations=[],
+            rotations=[],
+        )
 
     if not os.path.isfile(dat_path):
         return AnalyzeResult(
@@ -160,6 +218,8 @@ def run_stb_analyze(
             + str(len(displacements))
             + "; load_cases="
             + str(results.load_cases)
+            + "; python="
+            + exe
         ),
         node_ids=[row.node_id for row in displacements],
         load_cases=[row.load_case for row in displacements],
@@ -171,7 +231,7 @@ def run_stb_analyze(
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run STB the same way as the Grasshopper script sample.")
     parser.add_argument("dat_path")
-    parser.add_argument("--repo-root", required=True)
+    parser.add_argument("--repo-root", default=None)
     parser.add_argument("--python-exe", default=None)
     parser.add_argument("--out", default=None)
     parser.add_argument("--load-case", type=int, default=None)

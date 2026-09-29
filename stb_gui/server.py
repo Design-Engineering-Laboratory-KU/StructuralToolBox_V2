@@ -513,6 +513,12 @@ def run_server(
 
     print("Structural Toolbox: {0}".format(url))
     print("  project root: {0}".format(project_root()))
+    try:
+        from stb_engine import runtime
+
+        print("  {0}".format(runtime.summary_line()))
+    except ImportError:
+        pass
     print("  Close the GUI window or press Ctrl+C here to stop the server.")
     if not exit_with_browser:
         print("  (--no-exit-with-browser: server keeps running after the browser tab closes.)")

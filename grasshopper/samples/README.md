@@ -46,25 +46,16 @@ loading `StbGrasshopper.gha`.
 
 5. Set the `STB Analyze` inputs:
 
-   Windows:
-
    ```text
-   DAT Path:   C:\Users\bunji\GitCodes\stb_0_1\data\UK_240416_floors_1to3_diaphragm.dat
-   Python Exe: C:\Users\bunji\GitCodes\stb_0_1\.venv\Scripts\python.exe
-   Repo Root:  C:\Users\bunji\GitCodes\stb_0_1
+   DAT Path:   <path to>/data/UK_240416_floors_1to3_diaphragm.dat
+   Python Exe: (empty — auto-detected)
+   Repo Root:  (empty — auto-detected)
    Run:        false initially, then true
    Load Case:  -1
    ```
 
-   macOS:
-
-   ```text
-   DAT Path:   /path/to/stb_0_1/data/UK_240416_floors_1to3_diaphragm.dat
-   Python Exe: /path/to/stb_0_1/.venv/bin/python
-   Repo Root:  /path/to/stb_0_1
-   Run:        false initially, then true
-   Load Case:  -1
-   ```
+   Set `Repo Root` only to point at a specific checkout, and `Python Exe` only to
+   override the interpreter. See `grasshopper/gha/README.md` for the search order.
 
 6. Set result display load cases:
 
@@ -93,7 +84,7 @@ loading `StbGrasshopper.gha`.
 
 - Keep paths as editable panel values rather than hard-coding them inside custom
   components.
-- Use Windows `.venv\Scripts\python.exe` on Windows and `.venv/bin/python` on
-  macOS.
+- Leave `Python Exe` and `Repo Root` empty so the same definition works on
+  Windows and macOS, and on student installs.
 - The `.ghx` sample should not include machine-specific absolute paths unless it
   is clearly marked as a local smoke-test file.

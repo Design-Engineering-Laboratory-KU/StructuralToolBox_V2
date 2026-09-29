@@ -1,0 +1,45 @@
+#!/bin/bash
+# pkg のインストール後に、ログイン中のユーザーとして初回セットアップを実行する。
+set -u
+
+CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
+  echo "ログイン中のユーザーを特定できません。" >> /tmp/stb-install.log
+  exit 1
+fi
+
+USER_HOME="$(dscl . -read "/Users/${CONSOLE_USER}" NFSHomeDirectory | awk '{print $2}')"
+DEST="${USER_HOME}/Library/Application Support/StructuralToolbox"
+
+if [[ ! -d "$DEST/python-standalone-arm64" && ! -d "$DEST/python-standalone-x64" ]]; then
+  echo "payload が見つかりません: $DEST" >> /tmp/stb-install.log
+  exit 1
+fi
+
+case "$(uname -m)" in
+  arm64) rm -rf "$DEST/python-standalone-x64"; find "$DEST/wheels" -name '*x86_64.whl' -delete 2>/dev/null || true ;;
+  x86_64) rm -rf "$DEST/python-standalone-arm64"; find "$DEST/wheels" -name '*arm64.whl' -delete 2>/dev/null || true ;;
+esac
+
+chown -R "${CONSOLE_USER}:staff" "$DEST"
+xattr -cr "$DEST" 2>/dev/null || true
+chmod +x \
+  "$DEST/Install_once.command" \
+  "$DEST/Start Structural Toolbox.command" \
+  "$DEST/Start Structural Toolbox (debug).command" \
+  "$DEST/Uninstall.command" \
+  "$DEST/create_launchers.sh" \
+  2>/dev/null || true
+
+sudo -u "$CONSOLE_USER" /usr/bin/env \
+  HOME="$USER_HOME" USER="$CONSOLE_USER" LOGNAME="$CONSOLE_USER" \
+  /bin/bash "$DEST/Install_once.command" --silent
+RC=$?
+if [[ "$RC" -ne 0 ]]; then
+  exit "$RC"
+fi
+
+sudo -u "$CONSOLE_USER" /usr/bin/env \
+  HOME="$USER_HOME" USER="$CONSOLE_USER" LOGNAME="$CONSOLE_USER" \
+  /bin/bash "$DEST/create_launchers.sh"
+exit 0

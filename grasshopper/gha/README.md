@@ -93,17 +93,27 @@ build. Override the destination when needed with
 
 ## Runtime Notes
 
-`STb Analyze` and `STb Analyze from file` call the Python CLI outside Rhino. Use the platform-specific
-virtual environment Python:
+`STb Analyze` and `STb Analyze from file` call the Python CLI outside Rhino. Leave
+`Python Exe` and `Repo Root` empty: the components locate the Structural Toolbox
+virtual environment themselves, searching in this order.
 
-- Windows: `.venv\Scripts\python.exe`
-- macOS: `.venv/bin/python`
+1. `Repo Root`, when given
+2. `%LOCALAPPDATA%\StructuralToolbox` (Windows student install)
+3. `~/Library/Application Support/StructuralToolbox` (macOS student install)
+4. The folders above the loaded `.gha`, for developer checkouts
 
-The repository itself must be installed in that virtual environment:
+Within each folder they accept `.venv\Scripts\python.exe`, `.venv/bin/python3`,
+or `.venv/bin/python`. A Python found on `PATH` is never used, because it would
+lack the solver libraries; the components report an error instead. The resolved
+interpreter appears in the `Summary` output.
+
+In a developer checkout, install the repository into that virtual environment:
 
 ```bash
-python -m pip install -e .
+python -m pip install -e ".[gui]"
 ```
+
+Check which interpreter an install uses with `stb doctor`.
 
 ## Load case workflow
 

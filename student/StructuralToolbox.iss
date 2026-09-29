@@ -58,7 +58,7 @@ Name: "{group}\初回セットアップを再実行"; Filename: "{app}\Install_o
 Name: "{group}\{#MyAppName} をアンインストール"; Filename: "{uninstallexe}"; Comment: "このアプリを削除"
 
 [Run]
-Filename: "{app}\Install_once.bat"; Parameters: "/silent"; WorkingDir: "{app}"; StatusMsg: "ライブラリをセットアップしています（5〜15 分・インターネットが必要です）..."; Flags: waituntilterminated runhidden
+Filename: "{app}\Install_once.bat"; Parameters: "/silent"; WorkingDir: "{app}"; StatusMsg: "同梱のライブラリをセットアップしています（2〜5 分）..."; Flags: waituntilterminated runhidden
 
 [Code]
 function StbExePath: string;
@@ -71,17 +71,6 @@ begin
   Result := ExpandConstant('{app}\install.log');
 end;
 
-function NextButtonClick(CurPageID: Integer): Boolean;
-begin
-  Result := True;
-  if CurPageID = wpReady then
-  begin
-    if MsgBox('初回セットアップではインターネット接続が必要です（5〜15 分程度）。' + #13#10 +
-      '続行しますか？', mbConfirmation, MB_YESNO) = IDNO then
-      Result := False;
-  end;
-end;
-
 procedure DeinitializeSetup();
 begin
   if WizardSilent then
@@ -91,7 +80,7 @@ begin
   MsgBox(
     'ライブラリのセットアップが完了していません。' + #13#10 + #13#10 +
     'スタートメニューの「初回セットアップを再実行」を実行してください。' + #13#10 +
-    '（5〜15 分・インターネットが必要）' + #13#10 + #13#10 +
+    '（2〜5 分）' + #13#10 + #13#10 +
     '詳細ログ: ' + InstallLogPath,
     mbError, MB_OK);
 end;
