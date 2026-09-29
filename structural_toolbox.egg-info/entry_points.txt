@@ -1,2 +1,0 @@
-[console_scripts]
-stb = stb_cli.main:main

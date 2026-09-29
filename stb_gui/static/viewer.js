@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { attachI18n } from "./i18n.js";
 
 const COLORS = {
   background: 0xe1dee4,
@@ -67,6 +68,8 @@ const ALPHA = {
 
 const OPTIONS_STORAGE_KEY = "stb_gui_options";
 const THEME_STORAGE_KEY = "stb_gui_theme";
+const GUI_MODE_STORAGE_KEY = "stb_gui_mode";
+let guiMode = "simple";
 const RESULTS_DISPLAY_STORAGE_KEY = "stb_gui_results_display";
 const MODEL_STORAGE_KEY = "stb_gui_last_model";
 const WRW_CREATE_MODEL_KEY = "stb_gui_wwll_create_model";
@@ -241,7 +244,8 @@ const el = {
   optionsPanelHeader: document.getElementById("optionsPanelHeader"),
   btnOptionsCollapse: document.getElementById("btnOptionsCollapse"),
   btnToggleOptions: document.getElementById("btnToggleOptions"),
-  btnTheme: document.getElementById("btnTheme"),
+  optTheme: document.getElementById("optTheme"),
+  btnGuiMode: document.getElementById("btnGuiMode"),
   btnViewProjection: document.getElementById("btnViewProjection"),
   viewPreset: document.getElementById("viewPreset"),
   btnToggleAxes: document.getElementById("btnToggleAxes"),
@@ -712,8 +716,10 @@ function hasPickTargetFilter() {
 }
 
 function isPickTargetEnabled(mode) {
+  const m = normalizePickSubMode(mode);
+  if ((m === "diaphragm" || m === "wall") && !isAdvancedGui()) return false;
   if (!hasPickTargetFilter()) return true;
-  return pickSubModes.has(normalizePickSubMode(mode));
+  return pickSubModes.has(m);
 }
 
 function loadPickSubMode() {
@@ -744,6 +750,7 @@ function savePickSubMode() {
 
 function togglePickSubMode(mode) {
   const next = normalizePickSubMode(mode);
+  if ((next === "diaphragm" || next === "wall") && !isAdvancedGui()) return;
   const updated = new Set(pickSubModes);
   if (updated.has(next)) updated.delete(next);
   else updated.add(next);
@@ -757,15 +764,22 @@ function pickModeTitle() {
   const labels = [];
   if (pickSubModes.has("node")) labels.push("Nodes");
   if (pickSubModes.has("member")) labels.push("Members");
-  if (pickSubModes.has("diaphragm")) labels.push("Diaphragm");
-  if (pickSubModes.has("wall")) labels.push("Wall");
+  if (pickSubModes.has("diaphragm") && isAdvancedGui()) labels.push("Diaphragm");
+  if (pickSubModes.has("wall") && isAdvancedGui()) labels.push("Wall");
+  if (labels.length === 0) return "Pick — All";
   return "Pick — " + labels.join(" + ");
 }
 
 function pickModeHintText() {
-  const filter = hasPickTargetFilter()
-    ? "Filtered: " + Array.from(pickSubModes).join(", ") + "."
-    : "All targets (Nodes, Members, Diaphragm, Wall).";
+  const active = Array.from(pickSubModes).filter((m) => isPickTargetEnabled(m));
+  let filter;
+  if (active.length > 0) {
+    filter = "Filtered: " + active.join(", ") + ".";
+  } else {
+    filter = isAdvancedGui()
+      ? "All targets (Nodes, Members, Diaphragm, Wall)."
+      : "All targets (Nodes, Members).";
+  }
   return filter + " Toggle Pick target buttons to filter. Click or drag to pick. Shift+click adds. Ctrl+click removes. Right-click = menu. Esc clears.";
 }
 
@@ -1329,7 +1343,7 @@ function woodWallScreenVerts(wall, nm, display) {
 }
 
 function pickMembraneAtScreen(px, py, thresholdPx) {
-  if (!currentModel || !(el.chkMembrane && el.chkMembrane.checked)) return null;
+  if (!currentModel || !membraneShown()) return null;
   const display = getSceneDisplayState();
   const nm = nodeMap(currentModel);
   let bestId = null;
@@ -1355,7 +1369,7 @@ function pickMembraneAtScreen(px, py, thresholdPx) {
 }
 
 function pickWoodWallAtScreen(px, py, thresholdPx) {
-  if (!currentModel || !(el.chkWoodWall && el.chkWoodWall.checked)) return null;
+  if (!currentModel || !woodWallShown()) return null;
   const display = getSceneDisplayState();
   const nm = nodeMap(currentModel);
   let bestId = null;
@@ -1378,7 +1392,7 @@ function pickWoodWallAtScreen(px, py, thresholdPx) {
 
 function membranesInScreenRect(x0, y0, x1, y1, windowMode) {
   const ids = [];
-  if (!currentModel || !(el.chkMembrane && el.chkMembrane.checked)) return ids;
+  if (!currentModel || !membraneShown()) return ids;
   const display = getSceneDisplayState();
   const nm = nodeMap(currentModel);
   for (const mem of currentModel.membrane_elements || []) {
@@ -1395,7 +1409,7 @@ function membranesInScreenRect(x0, y0, x1, y1, windowMode) {
 
 function woodWallsInScreenRect(x0, y0, x1, y1, windowMode) {
   const ids = [];
-  if (!currentModel || !(el.chkWoodWall && el.chkWoodWall.checked)) return ids;
+  if (!currentModel || !woodWallShown()) return ids;
   const display = getSceneDisplayState();
   const nm = nodeMap(currentModel);
   for (const wall of currentModel.wood_rated_walls || []) {
@@ -3355,7 +3369,7 @@ function initContextMenu() {
         return;
       }
       const model = getPickWrwCreateModel();
-      const diapRaw = el.contextMenuWrwCreateDiap ? el.contextMenuWrwCreateDiap.value : "";
+      const diapRaw = el.contextMenuWrwCreateDiap && isAdvancedGui() ? el.contextMenuWrwCreateDiap.value : "";
       const modelLabel = wwllModelLabelFromCode(model);
       const ids = selectedNodeIdList();
       const diapText = diapRaw ? ("DIAP " + diapRaw) : "no DIAP tie";
@@ -3571,7 +3585,7 @@ function updateViewerInfoOverlay(model) {
     displayLines.push("input loads (" + loadTypeFilterValue() + ")");
     if (el.chkLoadValues.checked) displayLines.push("load values");
   }
-  if (el.chkWindLoads && el.chkWindLoads.checked && windVisualData) {
+  if (windLoadsShown() && windVisualData) {
     const wc = windCaseById(windVisualData, selectedWindCaseId);
     if (wc) {
       displayLines.push(
@@ -3579,7 +3593,7 @@ function updateViewerInfoOverlay(model) {
       );
     }
   }
-  if (el.chkPracticeCenters && el.chkPracticeCenters.checked) displayLines.push("CoG / CoR");
+  if (practiceCentersShown()) displayLines.push("CoG / CoR");
   if (el.chkReactions && el.chkReactions.checked) displayLines.push("reactions");
   if (el.chkReactionValues && el.chkReactionValues.checked) displayLines.push("reaction values");
   if (!el.chkSupports || el.chkSupports.checked) displayLines.push("supports");
@@ -3588,11 +3602,11 @@ function updateViewerInfoOverlay(model) {
   if (el.chkElemLabels && el.chkElemLabels.checked) displayLines.push("element IDs");
   if (el.chkMaterial && el.chkMaterial.checked) displayLines.push("material labels");
   if (el.chkSection && el.chkSection.checked) displayLines.push("section labels");
-  if (el.chkMembrane && el.chkMembrane.checked) {
+  if (membraneShown()) {
     const nmem = model.membrane_elements ? model.membrane_elements.length : 0;
     displayLines.push("diaphragm members (" + nmem + ")");
   }
-  if (el.chkWoodWall && el.chkWoodWall.checked) {
+  if (woodWallShown()) {
     const nwrw = model.wood_rated_walls ? model.wood_rated_walls.length : 0;
     displayLines.push("wood walls (" + nwrw + ")");
   }
@@ -3639,8 +3653,14 @@ function updateViewerInfoOverlay(model) {
   lines.push(
     "nodes: " + (model.nodes ? model.nodes.length : 0),
     "elements: " + (model.elements ? model.elements.length : 0),
-    "Diaphragm members: " + (model.membrane_elements ? model.membrane_elements.length : 0),
-    "Wood walls: " + (model.wood_rated_walls ? model.wood_rated_walls.length : 0),
+  );
+  if (isAdvancedGui()) {
+    lines.push(
+      "Diaphragm members: " + (model.membrane_elements ? model.membrane_elements.length : 0),
+      "Wood walls: " + (model.wood_rated_walls ? model.wood_rated_walls.length : 0),
+    );
+  }
+  lines.push(
     "supports: " + supports,
     "point loads: " + pointLoads,
     "element loads: " + elemLoads,
@@ -4522,8 +4542,14 @@ function sectionSolidGeometry(type, dims) {
     bevelEnabled: false,
     curveSegments: SECTION_SOLID_SEGMENTS,
   });
-  // Extrude depth(+Z) -> member axis(+X)
-  geo.rotateY(Math.PI * 0.5);
+  // Profile (x=B, y=H, extrude z) -> element local (vy, vz, vx), matching the
+  // solver where H lies along local z (Iy = B*H^3/12 is the strong axis).
+  geo.applyMatrix4(new THREE.Matrix4().set(
+    0, 0, 1, 0,
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 0, 1,
+  ));
   // Normalize local member axis to [0, 1] so start/end can be mapped robustly.
   geo.computeBoundingBox();
   if (geo.boundingBox) {
@@ -4955,10 +4981,10 @@ function buildModelScene(model) {
   const showMaterial = el.chkMaterial.checked;
   const showSection = el.chkSection.checked;
   const showSectionSolids = !!(el.chkSectionSolids && el.chkSectionSolids.checked);
-  const showMembrane = !!(el.chkMembrane && el.chkMembrane.checked);
+  const showMembrane = membraneShown();
   const showMembraneEdge = showMembrane
     && !!(el.chkMembraneEdge && el.chkMembraneEdge.checked);
-  const showWoodWall = !!(el.chkWoodWall && el.chkWoodWall.checked);
+  const showWoodWall = woodWallShown();
   const showWoodWallEdge = showWoodWall
     && !!(el.chkWoodWallEdge && el.chkWoodWallEdge.checked);
   const nm = nodeMap(model);
@@ -5344,14 +5370,14 @@ function buildModelScene(model) {
 
   clearGroup(windGroup);
   clearGroup(windLabelGroup);
-  if (el.chkWindLoads && el.chkWindLoads.checked && windVisualData) {
+  if (windLoadsShown() && windVisualData) {
     const wc = windCaseById(windVisualData, selectedWindCaseId);
     if (wc) drawWindOverlay(model, windVisualData, wc, span);
   }
   updateWindLegendOverlay();
 
   clearGroup(practiceCenterGroup);
-  if (el.chkPracticeCenters && el.chkPracticeCenters.checked && practiceSummaryData) {
+  if (practiceCentersShown() && practiceSummaryData) {
     drawPracticeCentersOverlay(model, practiceSummaryData, span);
   }
 
@@ -6321,11 +6347,13 @@ function loadValueLabelPoint(tail, tip, span, scaleFactor) {
 
 function loadTypeFilterValue() {
   const t = viewerOptions.inputLoadType;
+  if (t === "dlod" && !isAdvancedGui()) return "all";
   if (t === "area" || t === "gravity" || t === "linepoint" || t === "dlod") return t;
   return "all";
 }
 
 function shouldDrawDiaphragmLoad() {
+  if (!isAdvancedGui()) return false;
   const t = loadTypeFilterValue();
   return t === "all" || t === "dlod";
 }
@@ -6792,7 +6820,7 @@ function updateWindControlsAvailability() {
 
 function updateWindLegendOverlay() {
   if (!el.windLegendOverlay) return;
-  const show = !!(el.chkWindLoads && el.chkWindLoads.checked && windVisualData);
+  const show = windLoadsShown() && !!windVisualData;
   if (!show) {
     el.windLegendOverlay.hidden = true;
     el.windLegendOverlay.classList.remove("visible");
@@ -10117,6 +10145,7 @@ function initTextDocumentWindow(w, text, title, pdfName, saveName) {
   doc.write(title);
   doc.write("</header><pre class=\"doc-content\"></pre></body></html>");
   doc.close();
+  attachI18n(doc);
   (doc.querySelector("pre.doc-content") || doc.querySelector("pre")).textContent = text;
   doc.getElementById("btnSaveTxt").onclick = function () {
     const blob = new Blob([w.__stbTextDocContent], { type: "text/plain;charset=utf-8" });
@@ -10226,6 +10255,7 @@ function initInputEditorWindow(w, text, path) {
   doc.write("<textarea id=\"txt\"></textarea>");
   doc.write("</body></html>");
   doc.close();
+  attachI18n(doc);
 
   const textarea = doc.getElementById("txt");
   const statusEl = doc.getElementById("status");
@@ -10361,7 +10391,11 @@ async function openResultsWindow() {
 async function createNewModel() {
   setStatus("Creating new model…");
   try {
-    const res = await fetch("/api/model/new", { method: "POST" });
+    const res = await fetch("/api/model/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: guiMode }),
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || res.statusText);
@@ -10535,6 +10569,7 @@ async function bootstrap() {
   loadPickWrwCreateModel();
   loadPickSubMode();
   initUiTheme();
+  applyGuiMode(loadGuiMode());
   const listPromise = fetchModelList();
   initThree();
   initDisplayPrefs();
@@ -10728,10 +10763,19 @@ if (el.btnToggleDistance) {
   });
 }
 
-if (el.btnTheme) {
-  el.btnTheme.addEventListener("click", () => {
-    applyUiTheme(uiTheme === "dark" ? "light" : "dark");
+if (el.optTheme) {
+  el.optTheme.addEventListener("change", () => {
+    applyUiTheme(el.optTheme.value);
     saveUiTheme();
+  });
+}
+
+if (el.btnGuiMode) {
+  el.btnGuiMode.addEventListener("click", () => {
+    applyGuiMode(guiMode === "simple" ? "advanced" : "simple");
+    try {
+      localStorage.setItem(GUI_MODE_STORAGE_KEY, guiMode);
+    } catch (e) { /* ignore */ }
   });
 }
 
@@ -11281,10 +11325,8 @@ function applyUiTheme(theme) {
   if (meta) {
     meta.setAttribute("content", uiThemeMetaColor(uiTheme));
   }
-  if (el.btnTheme) {
-    const isDark = uiTheme === "dark";
-    el.btnTheme.textContent = isDark ? "Theme: Dark" : "Theme: Light";
-    el.btnTheme.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+  if (el.optTheme && el.optTheme.value !== uiTheme) {
+    el.optTheme.value = uiTheme;
   }
   if (currentModel) {
     rebuildScene();
@@ -11293,6 +11335,51 @@ function applyUiTheme(theme) {
 
 function initUiTheme() {
   applyUiTheme(loadUiTheme());
+}
+
+function loadGuiMode() {
+  try {
+    return localStorage.getItem(GUI_MODE_STORAGE_KEY) === "advanced" ? "advanced" : "simple";
+  } catch (e) {
+    return "simple";
+  }
+}
+
+function applyGuiMode(mode) {
+  guiMode = mode === "advanced" ? "advanced" : "simple";
+  document.documentElement.setAttribute("data-gui-mode", guiMode);
+  if (el.btnGuiMode) {
+    const advanced = guiMode === "advanced";
+    el.btnGuiMode.textContent = advanced ? "Advanced GUI (WIP)" : "Simple GUI";
+    el.btnGuiMode.classList.toggle("advanced", advanced);
+    el.btnGuiMode.title = advanced
+      ? "Switch to Simple GUI (hides Project / Loads / Practice)"
+      : "Switch to Advanced GUI (WIP): adds Project / Loads / Practice";
+  }
+  if (el.loadTypeFilter) el.loadTypeFilter.value = loadTypeFilterValue();
+  updatePickModeUI();
+  updateWindLegendOverlay();
+  if (currentModel) rebuildScene();
+}
+
+function isAdvancedGui() {
+  return guiMode === "advanced";
+}
+
+function windLoadsShown() {
+  return isAdvancedGui() && !!(el.chkWindLoads && el.chkWindLoads.checked);
+}
+
+function practiceCentersShown() {
+  return isAdvancedGui() && !!(el.chkPracticeCenters && el.chkPracticeCenters.checked);
+}
+
+function membraneShown() {
+  return isAdvancedGui() && !!(el.chkMembrane && el.chkMembrane.checked);
+}
+
+function woodWallShown() {
+  return isAdvancedGui() && !!(el.chkWoodWall && el.chkWoodWall.checked);
 }
 
 function loadViewerOptions() {

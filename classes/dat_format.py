@@ -536,7 +536,34 @@ def write_dat_text(path: str, text: str) -> None:
         fh.write(normalized)
 
 
-def new_model_template() -> str:
+NEW_MODEL_ORDER_ADVANCED = [
+    "MATE", "DMAT", "SECT", "NODE", "ELEM", "DIAP", "DREG", "DOPN", "DMEM", "DCON",
+    "DLOD", "WWLL", "EJNT", "CONS", "LNME", "LCMB", "PLOD", "ELOD", "ALOD", "GLOD",
+    "AXIS", "PLOT",
+]
+
+# Simple GUI: no diaphragm (DMAT/DIAP/DREG/DOPN/DMEM/DCON/DLOD), wood wall (WWLL)
+# or CLI plot records.
+NEW_MODEL_ORDER_SIMPLE = [
+    "MATE", "SECT", "NODE", "ELEM", "EJNT", "CONS", "LNME", "LCMB",
+    "PLOD", "ELOD", "ALOD", "GLOD",
+]
+
+
+def _template_examples(key: str, mode: str) -> list[str]:
+    if mode == "advanced" and key == "DLOD":
+        return [
+            example_line("DLOD"),
+            record_line("DLOD", DLOD_LINE_FMTS, [1, 1, 1, 0, 1, 5.0, 0.0]),
+            record_line("DLOD", DLOD_MBTR_FMTS, [1, 1, 2, 0, 5.0, 0.0]),
+            record_line("DLOD", DLOD_MASS_FMTS, [1, 2, 3, 10.0, 0.2, 0.0]),
+            record_line("DLOD", DLOD_WGHT_FMTS, [1, 2, 4, 100.0, 0.2, 0.0]),
+        ]
+    return [example_line(key)]
+
+
+def new_model_template(mode: str = "advanced") -> str:
+    mode = "simple" if mode == "simple" else "advanced"
     lines = [
         "# --- NEW MODEL ---",
         "# Structural Toolbox input file",
@@ -544,13 +571,10 @@ def new_model_template() -> str:
         "# TYPE OF ANALYSIS: 3D LINEAR STATIC",
         "#",
     ]
-    order = [
-        "MATE", "DMAT", "SECT", "NODE", "ELEM", "DIAP", "DREG", "DOPN", "DMEM", "DCON",
-        "DLOD", "WWLL", "EJNT", "CONS", "LNME", "LCMB", "PLOD", "ELOD", "ALOD", "GLOD",
-        "AXIS", "PLOT",
-    ]
+    order = NEW_MODEL_ORDER_SIMPLE if mode == "simple" else NEW_MODEL_ORDER_ADVANCED
     for key in order:
         lines.extend(SECTION_HEADERS[key])
-        lines.append(COMMENT_PREFIX + example_line(key))
+        for ex in _template_examples(key, mode):
+            lines.append(COMMENT_PREFIX + ex)
         lines.append("#")
     return "\n".join(lines) + "\n"

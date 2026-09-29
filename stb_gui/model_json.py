@@ -1,7 +1,7 @@
 import os
 import json
 
-from stb_gui.input_format import NEW_MODEL_TEMPLATE
+from stb_gui.input_format import NEW_MODEL_TEMPLATE, NEW_MODEL_TEMPLATE_SIMPLE
 
 _STB_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -266,14 +266,15 @@ def allocate_new_model_path():
     raise ValueError("Too many untitled model files in data/")
 
 
-def create_new_model_file():
+def create_new_model_file(mode: str = "advanced"):
     """Create a comment-only .dat file and return (relative path, text)."""
 
+    text = NEW_MODEL_TEMPLATE_SIMPLE if mode == "simple" else NEW_MODEL_TEMPLATE
     rel = allocate_new_model_path()
     full = os.path.join(project_root(), rel.replace("/", os.sep))
     with open(full, "w", encoding="utf-8") as f:
-        f.write(NEW_MODEL_TEMPLATE)
-    return rel, NEW_MODEL_TEMPLATE
+        f.write(text)
+    return rel, text
 
 
 def write_model_file(rel_path, text):

@@ -10,8 +10,7 @@
 
 | 環境 | 用途 |
 | --- | --- |
-| **Windows 11** | ZIP / Setup.exe のビルド（推奨） |
-| **Linux**（または WSL） | ZIP のみ作成する従来経路 |
+| **Windows 11** | ZIP / Setup.exe のビルド |
 | [Inno Setup 6](https://jrsoftware.org/isdl.php) | 無料・インストールのみ |
 | **インターネット**（ビルド時のみ） | Python と wheels の取得（`student/dist/_cache/` にキャッシュ） |
 | **.NET SDK + Rhino 8**（任意） | Grasshopper プラグイン `.gha` の同梱
@@ -22,14 +21,7 @@
 
 ### 1. 配布用フォルダ / ZIP を作る
 
-**Linux:**
-
-```bash
-cd /path/to/stb_0_1
-./student/build_student_zip.sh
-```
-
-**Windows（Linux が無い場合）:**
+PowerShell でリポジトリ直下から:
 
 ```powershell
 .\student\build_student_zip.ps1

@@ -1,8 +1,0 @@
-stb_checks
-stb_cli
-stb_engine
-stb_gui
-stb_loads
-stb_practice
-stb_project
-stb_reports

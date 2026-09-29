@@ -1,0 +1,82 @@
+# --- NEW MODEL ---
+# Structural Toolbox input file
+#
+# TYPE OF ANALYSIS: 3D LINEAR STATIC
+#
+# --- MATERIAL(MATE) ---
+# MATE,   ID,       NAME,        E,        G,    Gamma,    Alpha,       Fy
+#     ,     ,           ,    N/mm2,    N/mm2,    kN/m3,        -,    N/mm2
+# MATE,      0,      STEEL,   205000,    79000,     78.5,  1.2e-05,      235
+#
+# --- SECTION(SECT) ---
+# SECT,   ID,       NAME,    MAT,   TYPE,     DIM1,     DIM2,     DIM3,     DIM4
+#     ,     ,           ,       ,       ,       mm,       mm,       mm,       mm
+#   TYPE: 0=RECT  1=CIRC  2=I  3=CHS  4=RHS
+#   DIM3,DIM4: optional; omit for types with fewer dimensions
+# SECT,      0,       RECT,      0,      0,    200.0,    300.0
+#
+# --- NODE ---
+# NODE,   ID,         X,         Y,         Z
+#     ,     ,         m,         m,         m
+# NODE,      0,       0.0,       0.0,       0.0
+#
+# --- ELEMENT(ELEM) ---
+# ELEM,   ID,     Ni,     Nj,    SEC,     Beta
+#     ,     ,       ,       ,       ,      deg
+# ELEM,      0,      0,      1,      0,      0.0
+#
+# --- WOOD RATED WALL(WWLL) ---
+# WWLL,   ID,       NAME, MODEL,        M,        L,        H,  DIR,             RA,     N1,     N2,     N3,     N4,   DIAP, LAYO
+#     ,     ,           ,     ,        -,        m,        m,     ,            rad,       ,       ,       ,       ,       ,     
+#   MODEL: 0=equivalent brace  1=shear panel  2=membrane(reserved)
+#   DIR: 0=X  1=Y
+#   N1..N4: corner nodes (bottom line N1-N2, top line N3-N4)
+#   DIAP: diaphragm ID for in-plane MPC tie (blank=none)
+#   LAYO: 0=single brace  1=X-brace pair (default)
+# WWLL,      1,       W1_X,    0,      2.0,     1.82,     2.73,    0,   0.0083333333,     11,     12,     22,     21,       ,    1
+#
+# --- ELEMENT JOINT(EJNT) ---
+# EJNT, ELEM,        Ryi,        Rzi,        Ryj,        Rzj
+#     ,     ,    kNm/rad,    kNm/rad,    kNm/rad,    kNm/rad
+#   blank field = default rigid offset
+# EJNT,      0,        0.0,           ,           ,        0.0
+#
+# --- CONSTRAINT(CONS) ---
+# CONS, NODE,   TX,   TY,   TZ,   RX,   RY,   RZ
+#   TX..RZ: 0=FREE  1=FIXED
+# CONS,      0,    1,    1,    1,    1,    1,    1
+#
+# --- LOAD NAME(LNME) ---
+# LNME,   LC, TYPE,      LABEL
+#   TYPE: 1=DL  2=LL  3=LL(E)  4=S  5=W  6=E  7=CUSTOM
+#   LABEL: optional for TYPE 1-6; required for TYPE 7
+#   Wi for Ai distribution uses TYPE 1 + TYPE 3
+# LNME,      1,    1
+#
+# --- LOAD COMBINATION(LCMB) ---
+# LCMB,   LC,       NAME,    FC1,    LC1
+#   FC2,LC2,...: repeat factor/LC pairs
+# LCMB,      2,      EX(+),    2.0,      0,    1.0,      1
+#
+# --- POINT LOAD(PLOD) ---
+# PLOD, NODE,   LC,       PX,       PY,       PZ,       MX,       MY,       MZ
+#     ,     ,     ,       kN,       kN,       kN,      kNm,      kNm,      kNm
+# PLOD,      1,    0,      0.0,      0.0,     -5.0,      0.0,      0.0,      0.0
+#
+# --- ELEMENT LOAD(ELOD) ---
+# ELOD, ELEM,   LC,   EG,      WXi,      WYi,      WZi,      WXj,      WYj,      WZj
+#     ,     ,     ,     ,     kN/m,     kN/m,     kN/m,     kN/m,     kN/m,     kN/m
+#   EG: 0=element local axes  1=global axes
+# ELOD,      0,    0,    0,      0.0,      0.0,    -10.0,      0.0,      0.0,    -10.0
+#
+# --- AREA LOAD(ALOD) ---
+# ALOD,   LC,       PX,       PY,       PZ,     E1,     E2,     E3,     E4
+#     ,     ,    kN/m2,    kN/m2,    kN/m2,       ,       ,       ,       
+#   E4: optional for triangular panels
+# ALOD,      0,      0.0,      0.0,     -5.0,      0,      1,      2,      3
+#
+# --- GRAVITY LOAD(GLOD) ---
+# GLOD,   LC,         GX,         GY,         GZ
+#     ,     ,       m/s2,       m/s2,       m/s2
+# GLOD,      0,        0.0,        0.0,   -9.80665
+#

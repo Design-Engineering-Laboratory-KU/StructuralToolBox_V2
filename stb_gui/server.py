@@ -413,9 +413,10 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         return JSONResponse({"ok": True, "view": data})
 
     @app.post("/api/model/new")
-    def api_model_new():
+    def api_model_new(body: dict | None = Body(None)):
+        mode = (body or {}).get("mode", "advanced")
         try:
-            rel, text = create_new_model_file()
+            rel, text = create_new_model_file(mode)
         except ValueError as ex:
             raise HTTPException(status_code=400, detail=str(ex))
         except OSError as ex:

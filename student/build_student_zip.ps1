@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Windows 学生向け ZIP（同梱 Python）を作成する（Linux の build_student_zip.sh 相当）
+  Windows 学生向け ZIP（同梱 Python）を作成する
 
 .EXAMPLE
   .\student\build_student_zip.ps1

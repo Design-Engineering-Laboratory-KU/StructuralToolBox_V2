@@ -19,16 +19,15 @@ Grasshopperがインストール済みで `%APPDATA%\Grasshopper\Libraries` が�
 
 ## 推奨: Setup.exe の作り方
 
-### 1. Linux で ZIP を作る
+### 1. ZIP を作る（Windows）
 
-```bash
-cd /path/to/stb_0_1
-./student/build_student_zip.sh
+```powershell
+.\student\build_student_zip.ps1
 ```
 
 出力: `student/dist/StructuralToolbox_Windows_YYYYMMDD.zip`
 
-### 2. Windows で ZIP + インストーラを作る（Linux が無い場合）
+### 2. インストーラを作る（Windows）
 
 ZIP だけ作る:
 
@@ -43,9 +42,6 @@ ZIP だけ作る:
 # または
 .\student\build_student_installer.ps1 -SourceDir student\dist\_build\StructuralToolbox_Windows_YYYYMMDD
 ```
-
-Linux で ZIP を作った場合は、その ZIP を Windows にコピーして `.\student\build_student_installer.ps1` でも可。
-
 出力: `student/dist/StructuralToolbox_Setup_YYYYMMDD.exe`
 
 詳細: [docs/教員用_インストーラ作成_Windows.md](../docs/教員用_インストーラ作成_Windows.md)
@@ -70,13 +66,13 @@ Linux で ZIP を作った場合は、その ZIP を Windows にコピーして 
 
 バージョン変更: `student/PYTHON_EMBED_VERSION` を編集してから ZIP を再ビルド。
 
-### Linux から ZIP を作る
+### ZIP を作る
 
-```bash
-./student/build_student_zip.sh
+```powershell
+.\student\build_student_zip.ps1
 ```
 
-- **初回はインターネット必須**（python.org から embed パッケージを取得）
+- **ビルド時のみインターネット必須**（Python と wheels を取得）
 - キャッシュ: `student/dist/_cache/`
 - 出力: `student/dist/StructuralToolbox_Windows_YYYYMMDD.zip`
 
@@ -96,7 +92,7 @@ Linux で ZIP を作った場合は、その ZIP を Windows にコピーして 
 | --- | --- |
 | `student/StructuralToolbox.iss` | Inno Setup 定義 |
 | `student/build_student_installer.ps1` | ZIP → Setup.exe |
-| `student/build_student_zip.sh` | Linux → ZIP |
+| `student/build_student_zip.ps1` | Windows 用 ZIP / 配布フォルダ |
 | `student/build_student_mac.py` | Mac インストーラ（tar.gz。Mac 上では dmg / pkg も） |
 | `Install_once.bat` | 初回セットアップ（`/silent` でインストーラから実行） |
 | `Start Structural Toolbox.bat` | ZIP 版の毎回起動 |

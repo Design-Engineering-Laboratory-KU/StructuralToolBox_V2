@@ -74,6 +74,20 @@ html, body {
   color: #fff;
 }
 
+html[data-gui-mode="simple"] .advanced-only {
+  display: none !important;
+}
+
+#toolbar button#btnGuiMode {
+  background: #2f6f4f;
+  color: #fff;
+  font-weight: 600;
+}
+
+#toolbar button#btnGuiMode.advanced {
+  background: #8a4b16;
+}
+
 #toolbar button#btnToggleSelect.active {
   background: #ff8c00;
   color: #111;
@@ -934,6 +948,10 @@ select.context-menu-input {
 .panel-check-inline {
   justify-content: flex-start;
   gap: 0.45rem;
+}
+
+.panel-check-inline > span {
+  white-space: nowrap;
 }
 
 .panel-check-inline select {
