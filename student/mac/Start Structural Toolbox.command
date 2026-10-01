@@ -1,5 +1,8 @@
 #!/bin/bash
 set -u
+# この Mac に入っている別の Python の設定を無視する（同梱 Python が壊れるため）
+unset PYTHONHOME PYTHONPATH PYTHONSTARTUP PYTHONUSERBASE VIRTUAL_ENV
+export PYTHONNOUSERSITE=1
 cd "$(dirname "$0")"
 
 if [[ ! -x ".venv/bin/stb" ]]; then

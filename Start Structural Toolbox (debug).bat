@@ -2,6 +2,13 @@
 chcp 65001 >nul
 title Structural Toolbox (debug)
 cd /d "%~dp0"
+REM Ignore the PC's own Python settings; they crash the bundled interpreter.
+set "PYTHONHOME="
+set "PYTHONPATH="
+set "PYTHONSTARTUP="
+set "PYTHONUSERBASE="
+set "VIRTUAL_ENV="
+set "PYTHONNOUSERSITE=1"
 
 REM 単行の if だけを使う（理由は Start Structural Toolbox.bat のコメント参照）。
 if not exist ".venv\Scripts\python.exe" echo [エラー] 先に Install_once.bat を実行してください。

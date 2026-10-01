@@ -2,6 +2,9 @@
 # インストール先フォルダで実行。手順とメッセージは setup_runtime.py にある。
 # インストーラからは Install_once.command --silent で呼び出す。
 set -u
+# この Mac に入っている別の Python の設定を無視する（同梱 Python が壊れるため）
+unset PYTHONHOME PYTHONPATH PYTHONSTARTUP PYTHONUSERBASE VIRTUAL_ENV
+export PYTHONNOUSERSITE=1
 
 cd "$(dirname "$0")"
 ROOT="$(pwd)"

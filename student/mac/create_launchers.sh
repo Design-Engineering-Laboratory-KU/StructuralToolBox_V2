@@ -48,6 +48,8 @@ EOF
   cat > "$macos/$exe" <<'LAUNCH'
 #!/bin/bash
 set -u
+unset PYTHONHOME PYTHONPATH PYTHONSTARTUP PYTHONUSERBASE VIRTUAL_ENV
+export PYTHONNOUSERSITE=1
 MODE="$(cat "$(dirname "$0")/../Resources/mode" 2>/dev/null || echo gui)"
 DEST="$HOME/Library/Application Support/StructuralToolbox"
 

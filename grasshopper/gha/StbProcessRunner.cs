@@ -76,6 +76,15 @@ namespace StbGrasshopper
                 CreateNoWindow = true
             };
 
+            // The PC's own Python settings make the bundled interpreter load a
+            // foreign standard library and crash.
+            foreach (var name in new[] { "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONUSERBASE", "VIRTUAL_ENV" })
+            {
+                psi.Environment.Remove(name);
+            }
+
+            psi.Environment["PYTHONNOUSERSITE"] = "1";
+
             using (var process = Process.Start(psi))
             {
                 var stdout = process.StandardOutput.ReadToEnd();

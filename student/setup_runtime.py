@@ -41,10 +41,31 @@ def log(text: str) -> None:
         fh.write(text.rstrip("\n") + "\n")
 
 
+def isolated_env() -> dict:
+    """Environment for the bundled interpreters, free of the PC's own Python setup.
+
+    PYTHONHOME / PYTHONPATH pointing at another Python 3.12 make the .venv
+    interpreter load a foreign standard library and crash (0xC0000005), and
+    user site-packages or pip.ini can leak other packages into the install.
+    """
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith(("PYTHON", "PIP_", "CONDA"))
+        and key.upper() not in ("VIRTUAL_ENV", "__PYVENV_LAUNCHER__")
+    }
+    env["PYTHONNOUSERSITE"] = "1"
+    env["PIP_CONFIG_FILE"] = os.devnull
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    return env
+
+
 def run(cmd: list[str], step: str, silent: bool) -> None:
     log("$ " + " ".join(cmd))
     if silent:
-        result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, errors="replace")
+        result = subprocess.run(
+            cmd, cwd=ROOT, env=isolated_env(), capture_output=True, text=True, errors="replace"
+        )
         log(result.stdout or "")
         log(result.stderr or "")
         if result.returncode != 0:
@@ -55,7 +76,7 @@ def run(cmd: list[str], step: str, silent: bool) -> None:
                     for line in stream.strip().splitlines()[-12:]:
                         out(line)
     else:
-        result = subprocess.run(cmd, cwd=ROOT)
+        result = subprocess.run(cmd, cwd=ROOT, env=isolated_env())
     if result.returncode != 0:
         log("exit code: " + str(result.returncode))
         raise Failure(step)
@@ -98,6 +119,7 @@ def ensure_pip(python: Path, pip_args: list[str], silent: bool) -> None:
     probe = subprocess.run(
         [str(python), "-m", "pip", "--version"],
         cwd=ROOT,
+        env=isolated_env(),
         capture_output=True,
         text=True,
     )

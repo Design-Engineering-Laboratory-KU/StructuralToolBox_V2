@@ -3,6 +3,13 @@ REM ASCII only. All setup steps and Japanese messages live in setup_runtime.py,
 REM because cmd.exe mis-reads batch files that mix non-ASCII text with calls.
 chcp 65001 >nul
 cd /d "%~dp0"
+REM Ignore the PC's own Python settings; setup_runtime.py also isolates its children.
+set "PYTHONHOME="
+set "PYTHONPATH="
+set "PYTHONSTARTUP="
+set "PYTHONUSERBASE="
+set "VIRTUAL_ENV="
+set "PYTHONNOUSERSITE=1"
 
 set "PY=%~dp0python-embed\python.exe"
 if not exist "%PY%" (
