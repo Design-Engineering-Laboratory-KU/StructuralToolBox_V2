@@ -58,6 +58,25 @@ ARCHIVES = {
     "python-standalone-x64": "x86_64-apple-darwin",
 }
 
+PKG_IDENTIFIER = "org.structuraltoolbox.mac"
+PKG_VERSION = "0.1.0"
+PKG_INSTALL_LOCATION = "Library/Application Support/StructuralToolbox"
+DISTRIBUTION_XML = f"""<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Structural Toolbox</title>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="true" enable_localSystem="false"/>
+    <choices-outline>
+        <line choice="main"/>
+    </choices-outline>
+    <choice id="main" title="Structural Toolbox" start_selected="true">
+        <pkg-ref id="{PKG_IDENTIFIER}"/>
+    </choice>
+    <pkg-ref id="{PKG_IDENTIFIER}" version="{PKG_VERSION}" auth="none">StructuralToolbox-component.pkg</pkg-ref>
+</installer-gui-script>
+"""
+
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
@@ -196,7 +215,7 @@ def include_wheels(payload: Path) -> None:
 def include_grasshopper(payload: Path) -> None:
     artifact = ROOT / "grasshopper" / "gha" / "bin" / "Release" / "StbGrasshopper.gha"
     project = ROOT / "grasshopper" / "gha" / "StbGrasshopper.csproj"
-    if not artifact.is_file() and shutil.which("dotnet"):
+    if shutil.which("dotnet"):
         print("Building Grasshopper plugin...")
         libraries = DIST / "_gha_build_libraries"
         libraries.mkdir(parents=True, exist_ok=True)
@@ -212,7 +231,7 @@ def include_grasshopper(payload: Path) -> None:
             cwd=ROOT,
         )
         if result.returncode != 0:
-            print("warning: Grasshopper plugin build failed; continuing without .gha")
+            raise SystemExit("Grasshopper plugin build failed: " + str(project))
     if artifact.is_file():
         dest = payload / "grasshopper"
         dest.mkdir(parents=True, exist_ok=True)
@@ -424,35 +443,18 @@ def build_pkg(payload: Path, pkg_path: Path) -> None:
             "--root",
             str(payload),
             "--install-location",
-            "Library/Application Support/StructuralToolbox",
+            PKG_INSTALL_LOCATION,
             "--scripts",
             str(scripts),
             "--identifier",
-            "org.structuraltoolbox.mac",
+            PKG_IDENTIFIER,
             "--version",
-            "0.1.0",
+            PKG_VERSION,
             str(component),
         ]
     )
     distribution = work / "distribution.xml"
-    distribution.write_text(
-        """<?xml version="1.0" encoding="utf-8"?>
-<installer-gui-script minSpecVersion="2">
-    <title>Structural Toolbox</title>
-    <welcome file="welcome.html" mime-type="text/html"/>
-    <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
-    <domains enable_anywhere="false" enable_currentUserHome="true" enable_localSystem="false"/>
-    <choices-outline>
-        <line choice="main"/>
-    </choices-outline>
-    <choice id="main" title="Structural Toolbox" start_selected="true">
-        <pkg-ref id="org.structuraltoolbox.mac"/>
-    </choice>
-    <pkg-ref id="org.structuraltoolbox.mac" version="0.1.0" auth="none">StructuralToolbox-component.pkg</pkg-ref>
-</installer-gui-script>
-""",
-        encoding="utf-8",
-    )
+    distribution.write_text(DISTRIBUTION_XML, encoding="utf-8")
     if pkg_path.exists():
         pkg_path.unlink()
     subprocess.check_call(
@@ -467,6 +469,86 @@ def build_pkg(payload: Path, pkg_path: Path) -> None:
             str(pkg_path),
         ]
     )
+
+
+def write_mac_packager(script_path: Path, name: str, stamp: str) -> None:
+    """Script that turns the tar.gz into .dmg and .pkg on a Mac without the repository.
+
+    postinstall and welcome.html are embedded so the tar.gz and this script are
+    the only files the Mac needs.
+    """
+    postinstall = lf_bytes(MAC / "postinstall").decode("utf-8")
+    welcome = lf_bytes(MAC / "welcome.html").decode("utf-8")
+    for text in (postinstall, welcome, DISTRIBUTION_XML):
+        if "STB_EOF" in text:
+            raise SystemExit("heredoc delimiter STB_EOF appears in embedded file")
+
+    script = f"""#!/bin/bash
+# Mac で tar.gz から .dmg と .pkg を作る（リポジトリ不要）。
+# 使い方: {name}.tar.gz と同じフォルダに置いて  bash {script_path.name}
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+NAME="{name}"
+TARBALL="$HERE/$NAME.tar.gz"
+DMG="$HERE/StructuralToolbox_Mac_{stamp}.dmg"
+PKG="$HERE/StructuralToolbox_Setup_Mac_{stamp}.pkg"
+
+if [[ "$(uname)" != "Darwin" ]]; then
+  echo "このスクリプトは macOS で実行してください。" >&2
+  exit 1
+fi
+if [[ ! -f "$TARBALL" ]]; then
+  echo "見つかりません: $TARBALL" >&2
+  echo "このスクリプトと同じフォルダに $NAME.tar.gz を置いてください。" >&2
+  exit 1
+fi
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+echo "展開しています: $TARBALL"
+tar -xzf "$TARBALL" -C "$WORK"
+STAGE="$WORK/$NAME"
+PAYLOAD="$STAGE/payload"
+xattr -cr "$STAGE" 2>/dev/null || true
+
+echo "ディスクイメージを作成しています..."
+rm -f "$DMG"
+hdiutil create -volname "Structural Toolbox" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+
+echo "インストーラパッケージを作成しています..."
+mkdir -p "$WORK/pkg/scripts" "$WORK/pkg/resources"
+cat > "$WORK/pkg/scripts/postinstall" <<'STB_EOF'
+{postinstall.rstrip(chr(10))}
+STB_EOF
+chmod 755 "$WORK/pkg/scripts/postinstall"
+cat > "$WORK/pkg/resources/welcome.html" <<'STB_EOF'
+{welcome.rstrip(chr(10))}
+STB_EOF
+cat > "$WORK/pkg/distribution.xml" <<'STB_EOF'
+{DISTRIBUTION_XML.rstrip(chr(10))}
+STB_EOF
+
+pkgbuild \\
+  --root "$PAYLOAD" \\
+  --install-location "{PKG_INSTALL_LOCATION}" \\
+  --scripts "$WORK/pkg/scripts" \\
+  --identifier "{PKG_IDENTIFIER}" \\
+  --version "{PKG_VERSION}" \\
+  "$WORK/pkg/StructuralToolbox-component.pkg"
+rm -f "$PKG"
+productbuild \\
+  --distribution "$WORK/pkg/distribution.xml" \\
+  --package-path "$WORK/pkg" \\
+  --resources "$WORK/pkg/resources" \\
+  "$PKG"
+
+echo ""
+echo "完成: $DMG"
+echo "完成: $PKG"
+"""
+    script_path.write_bytes(script.encode("utf-8"))
 
 
 def main() -> None:
@@ -521,11 +603,14 @@ def main() -> None:
         build_pkg(payload, pkg_path)
         print(f"Done: {pkg_path}")
     else:
+        packager = DIST / f"StructuralToolbox_Mac_make_pkg_{stamp}.sh"
+        write_mac_packager(packager, name, stamp)
+        print(f"Done: {packager}")
         print("")
         print("This PC produced the tar.gz installer.")
         print("Students: extract it, then right-click インストール.command and choose Open.")
-        print("On a Mac, run the same script to also build .dmg and .pkg:")
-        print("  ./student/build_student_installer_mac.sh")
+        print("To also build .dmg and .pkg, copy the tar.gz and the .sh to one folder on a Mac and run:")
+        print(f"  bash {packager.name}")
 
 
 if __name__ == "__main__":

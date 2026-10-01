@@ -47,9 +47,17 @@ def run(cmd: list[str], step: str, silent: bool) -> None:
         result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, errors="replace")
         log(result.stdout or "")
         log(result.stderr or "")
+        if result.returncode != 0:
+            # Surface the real pip error on the console; the generic hint alone
+            # is not enough to recover when a wheel is missing.
+            for stream in (result.stdout, result.stderr):
+                if stream:
+                    for line in stream.strip().splitlines()[-12:]:
+                        out(line)
     else:
         result = subprocess.run(cmd, cwd=ROOT)
     if result.returncode != 0:
+        log("exit code: " + str(result.returncode))
         raise Failure(step)
 
 
@@ -165,12 +173,24 @@ def verify(silent: bool) -> None:
     )
 
 
-def grasshopper_libraries() -> Path:
+GRASSHOPPER_PLUGIN_FOLDER = "Grasshopper (b45a29b1-4343-4035-989e-044e8580d9cf)"
+
+
+def grasshopper_libraries() -> list:
+    """Folders Grasshopper loads .gha files from. Created when missing, so the
+    plugin is in place even if Grasshopper has never been started."""
     if IS_WINDOWS:
         appdata = os.environ.get("APPDATA")
         base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
-        return base / "Grasshopper" / "Libraries"
-    return Path.home() / "Library" / "Application Support" / "Grasshopper" / "Libraries"
+        return [base / "Grasshopper" / "Libraries"]
+
+    rhino = Path.home() / "Library" / "Application Support" / "McNeel" / "Rhinoceros"
+    found = sorted(rhino.glob("*/Plug-ins/" + GRASSHOPPER_PLUGIN_FOLDER))
+    folders = [path / "Libraries" for path in found]
+    default = rhino / "8.0" / "Plug-ins" / GRASSHOPPER_PLUGIN_FOLDER / "Libraries"
+    if default not in folders:
+        folders.append(default)
+    return folders
 
 
 def install_grasshopper_plugin() -> None:
@@ -178,21 +198,21 @@ def install_grasshopper_plugin() -> None:
     if not plugin.is_file():
         return
 
-    libraries = grasshopper_libraries()
-    if not libraries.is_dir():
-        out("Grasshopper が見つかりません。Rhino を使う場合は、あとでもう一度実行してください。")
-        log("Grasshopper libraries not found: " + str(libraries))
-        return
+    for libraries in grasshopper_libraries():
+        target = libraries / "StbGrasshopper.gha"
+        try:
+            libraries.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(plugin, target)
+        except OSError as ex:
+            out("[警告] Grasshopper プラグインのコピーに失敗しました。Rhino を終了してから、もう一度実行してください。")
+            log("Grasshopper copy failed: " + str(target) + ": " + str(ex))
+            continue
 
-    try:
-        shutil.copyfile(plugin, libraries / "StbGrasshopper.gha")
-    except OSError as ex:
-        out("[警告] Grasshopper プラグインのコピーに失敗しました。Rhino を終了してから、もう一度実行してください。")
-        log("Grasshopper copy failed: " + str(ex))
-        return
-
-    out("Grasshopper プラグインを配置しました: " + str(libraries))
-    log("Grasshopper plugin installed: " + str(libraries))
+        if not IS_WINDOWS:
+            # Rhino refuses to load a quarantined assembly.
+            subprocess.run(["xattr", "-d", "com.apple.quarantine", str(target)], capture_output=True)
+        out("Grasshopper プラグインを配置しました: " + str(libraries))
+        log("Grasshopper plugin installed: " + str(target))
 
 
 def main() -> int:

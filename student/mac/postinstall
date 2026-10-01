@@ -1,18 +1,39 @@
 #!/bin/bash
 # pkg のインストール後に、ログイン中のユーザーとして初回セットアップを実行する。
+# 「自分専用にインストール」ではユーザー権限で、それ以外では root で呼ばれる。
 set -u
 
-CONSOLE_USER="$(stat -f '%Su' /dev/console)"
-if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
-  echo "ログイン中のユーザーを特定できません。" >> /tmp/stb-install.log
-  exit 1
+LOG="/tmp/stb-install.log"
+if touch "$LOG" 2>/dev/null; then
+  exec >>"$LOG" 2>&1
+fi
+echo "=== postinstall $(date) uid=$(id -u) target=${2:-}"
+
+if [[ "$(id -u)" -eq 0 ]]; then
+  CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+  if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
+    echo "ログイン中のユーザーを特定できません。"
+    exit 1
+  fi
+  USER_HOME="$(dscl . -read "/Users/${CONSOLE_USER}" NFSHomeDirectory | awk '{print $2}')"
+  as_user() {
+    sudo -u "$CONSOLE_USER" /usr/bin/env \
+      HOME="$USER_HOME" USER="$CONSOLE_USER" LOGNAME="$CONSOLE_USER" "$@"
+  }
+else
+  CONSOLE_USER="$(id -un)"
+  USER_HOME="$HOME"
+  as_user() { "$@"; }
 fi
 
-USER_HOME="$(dscl . -read "/Users/${CONSOLE_USER}" NFSHomeDirectory | awk '{print $2}')"
 DEST="${USER_HOME}/Library/Application Support/StructuralToolbox"
+if [[ -n "${2:-}" && -d "${2}/python-standalone-arm64" || -n "${2:-}" && -d "${2}/python-standalone-x64" ]]; then
+  DEST="$2"
+fi
+echo "user=$CONSOLE_USER dest=$DEST"
 
 if [[ ! -d "$DEST/python-standalone-arm64" && ! -d "$DEST/python-standalone-x64" ]]; then
-  echo "payload が見つかりません: $DEST" >> /tmp/stb-install.log
+  echo "payload が見つかりません: $DEST"
   exit 1
 fi
 
@@ -21,7 +42,9 @@ case "$(uname -m)" in
   x86_64) rm -rf "$DEST/python-standalone-arm64"; find "$DEST/wheels" -name '*arm64.whl' -delete 2>/dev/null || true ;;
 esac
 
-chown -R "${CONSOLE_USER}:staff" "$DEST"
+if [[ "$(id -u)" -eq 0 ]]; then
+  chown -R "${CONSOLE_USER}:staff" "$DEST"
+fi
 xattr -cr "$DEST" 2>/dev/null || true
 chmod +x \
   "$DEST/Install_once.command" \
@@ -31,15 +54,14 @@ chmod +x \
   "$DEST/create_launchers.sh" \
   2>/dev/null || true
 
-sudo -u "$CONSOLE_USER" /usr/bin/env \
-  HOME="$USER_HOME" USER="$CONSOLE_USER" LOGNAME="$CONSOLE_USER" \
-  /bin/bash "$DEST/Install_once.command" --silent
+as_user /bin/bash "$DEST/Install_once.command" --silent
 RC=$?
+echo "Install_once exit code: $RC"
 if [[ "$RC" -ne 0 ]]; then
+  echo "詳細: $DEST/install.log"
   exit "$RC"
 fi
 
-sudo -u "$CONSOLE_USER" /usr/bin/env \
-  HOME="$USER_HOME" USER="$CONSOLE_USER" LOGNAME="$CONSOLE_USER" \
-  /bin/bash "$DEST/create_launchers.sh"
+as_user /bin/bash "$DEST/create_launchers.sh"
+echo "postinstall done"
 exit 0

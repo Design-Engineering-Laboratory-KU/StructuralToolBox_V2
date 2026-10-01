@@ -1,5 +1,7 @@
 # 教員用 — Windows インストーラ（Setup.exe）の作成
 
+> 実際に通した手順とエラー対策のまとめ: [教員用_インストーラ作成_手順まとめ.md](教員用_インストーラ作成_手順まとめ.md)
+
 学生には **ZIP + .bat** の代わりに、通常の Windows ソフトのように **Setup.exe** を配布できます。
 
 ---
@@ -81,7 +83,8 @@ PowerShell でリポジトリ直下から:
 どちらも中身は同じ（同梱 Python + `.venv` + `stb gui` + Grasshopper `.gha`）。
 
 配布用ペイロードには `grasshopper\StbGrasshopper.gha` が含まれます。Setup.exe
-実行時に `%APPDATA%\Grasshopper\Libraries` が存在すれば、そこへ自動コピーされます。
+実行時に `%APPDATA%\Grasshopper\Libraries` へ自動コピーされます（フォルダが無ければ作成）。
+アンインストール時にはこの `.gha` も削除されます。
 Rhino/Grasshopperが起動中でコピーできない場合は、Rhinoを終了してから
 インストール先の `Install_once.bat` を再実行してください。
 

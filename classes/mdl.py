@@ -12,6 +12,23 @@ import math
 from diaphragm import build_diaphragm_mpcs
 
 
+def _joint_fixity_R(spring, EI, L):
+    """R = lambda * EI for the Excel-FEM joint factor (0 = pin, 1 = rigid).
+
+    ``spring`` is the EJNT rotational spring [Nm/rad]; None means rigid.
+    lambda = gamma / (gamma + 6) with gamma = spring * L / EI reproduces a
+    physical end spring in series with the Bernoulli member.
+    """
+    if spring is None:
+        return EI
+    if spring < 0.0:
+        raise ValueError("EJNT spring must be zero or positive: {0}".format(spring))
+    if spring == 0.0:
+        return 0.0
+    gamma = spring * L / EI
+    return EI * gamma / (gamma + 6.0)
+
+
 def _index_by_attr(items, attr):
     by_attr = {}
     for item in items:
@@ -230,15 +247,12 @@ class Mdl:
             if e == -1:
                 continue
 
-            if j.ryi == None:   j.Ryi = e.sec.mat.E * e.sec.Iy 
-            else:               j.Ryi = j.ryi * e.len
-            if j.rzi == None:   j.Rzi = e.sec.mat.E * e.sec.Iz 
-            else:               j.Rzi = j.ryi * e.len
-
-            if j.ryj == None:   j.Ryj = e.sec.mat.E * e.sec.Iy 
-            else:               j.Ryj = j.ryj * e.len
-            if j.rzj == None:   j.Rzj = e.sec.mat.E * e.sec.Iz
-            else:               j.Rzj = j.rzj * e.len
+            EIy = e.sec.mat.E * e.sec.Iy
+            EIz = e.sec.mat.E * e.sec.Iz
+            j.Ryi = _joint_fixity_R(j.ryi, EIy, e.len)
+            j.Rzi = _joint_fixity_R(j.rzi, EIz, e.len)
+            j.Ryj = _joint_fixity_R(j.ryj, EIy, e.len)
+            j.Rzj = _joint_fixity_R(j.rzj, EIz, e.len)
 
             e.jnt = j
 

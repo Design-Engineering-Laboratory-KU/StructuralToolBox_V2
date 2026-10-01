@@ -1,35 +1,68 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Globalization;
+using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Rhino.Geometry;
 
 namespace StbGrasshopper
 {
-    public sealed class StbStressComponent : GH_Component
+    public sealed class StbStressComponent : GH_Component, IStbDropDownOwner
     {
+        private const string ModeKey = "StressMode";
+
+        private static readonly StressMode[] Modes =
+        {
+            new StressMode("Combined |N/A|+|My/Wy|+|Mz/Wz|", "Combined \u03c3 [N/mm2]"),
+            new StressMode("Axial N/A", "Axial \u03c3 = N/A [N/mm2]"),
+            new StressMode("Bending y My/Wy", "Bending \u03c3 = My/Wy [N/mm2]"),
+            new StressMode("Bending z Mz/Wz", "Bending \u03c3 = Mz/Wz [N/mm2]"),
+        };
+
         private readonly List<StressSegment> _segments = new List<StressSegment>();
         private BoundingBox _clippingBox = BoundingBox.Empty;
         private double _legendMaximum;
         private bool _showLegend = true;
+        private int _mode;
 
         public StbStressComponent()
             : base(
                 "STB Stress",
                 "STB Stress",
-                "Preview maximum absolute normal stress from axial force and biaxial bending.",
-                "STB",
-                "Results")
+                "Preview member normal stress: the combined extreme-fiber value or its axial and bending components.",
+                StbCategories.Tab,
+                StbCategories.Post)
         {
         }
 
         public override Guid ComponentGuid =>
             new Guid("2e602955-531a-4bc3-b6a4-a9b7a2e517ad");
+        public override GH_Exposure Exposure => GH_Exposure.secondary;
 
-        protected override Bitmap Icon => StbIcons.Forces;
+        protected override Bitmap Icon => StbIcons.Stress;
 
         public override BoundingBox ClippingBox => _clippingBox;
+
+        int IStbDropDownOwner.DropDownCount => Modes.Length;
+        int IStbDropDownOwner.DropDownSelection => _mode;
+        string IStbDropDownOwner.DropDownName(int index) => Modes[index].Name;
+
+        void IStbDropDownOwner.SetDropDownSelection(int index)
+        {
+            if (index == _mode || index < 0 || index >= Modes.Length)
+            {
+                return;
+            }
+
+            RecordUndoEvent("Change stress component");
+            _mode = index;
+            ExpireSolution(true);
+        }
+
+        public override void CreateAttributes()
+        {
+            m_attributes = new StbDropDownAttributes(this, this);
+        }
 
         protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
@@ -75,7 +108,7 @@ namespace StbGrasshopper
             pManager.AddNumberParameter(
                 "Stress",
                 "S",
-                "Maximum absolute normal stress at each segment in N/mm2.",
+                "Absolute stress of the selected component at each segment in N/mm2.",
                 GH_ParamAccess.list);
             pManager.AddColourParameter(
                 "Colors",
@@ -105,6 +138,7 @@ namespace StbGrasshopper
             da.GetData(3, ref requestedMaximum);
             da.GetData(4, ref _showLegend);
             divisions = Math.Max(1, Math.Min(100, divisions));
+            Message = Modes[_mode].Name;
 
             if (results.Sections.Count == 0)
             {
@@ -153,39 +187,16 @@ namespace StbGrasshopper
                     continue;
                 }
 
-                var stressI = StressMagnitude(
-                    force.Ni,
-                    force.Myi,
-                    force.Mzi,
-                    section);
-                var stressJ = StressMagnitude(
-                    force.Nj,
-                    force.Myj,
-                    force.Mzj,
-                    section);
-                var stressCenter = StressMagnitude(
-                    0.5 * (Math.Abs(force.Ni) + Math.Abs(force.Nj)),
-                    force.Myc,
-                    force.Mzc,
-                    section);
-
-                if (!IsFinite(stressI) || !IsFinite(stressCenter) || !IsFinite(stressJ))
-                {
-                    continue;
-                }
-
                 for (var i = 0; i < divisions; i++)
                 {
                     var t0 = (double)i / divisions;
                     var t1 = (double)(i + 1) / divisions;
-                    var tm = 0.5 * (t0 + t1);
-                    var stress = Math.Max(
-                        0.0,
-                        Quadratic(stressI, stressCenter, stressJ, tm));
+                    var stress = StressAt(force, section, 0.5 * (t0 + t1));
                     if (!IsFinite(stress))
                     {
                         continue;
                     }
+
                     var line = new Line(
                         Interpolate(start, end, t0),
                         Interpolate(start, end, t1));
@@ -220,8 +231,8 @@ namespace StbGrasshopper
 
             foreach (var segment in rawSegments)
             {
-                var color = StressColor(segment.Stress / _legendMaximum);
-                _segments.Add(new StressSegment(segment.Line, segment.Stress, color));
+                var color = StbLegend.ColorFor(segment.Stress / _legendMaximum);
+                _segments.Add(new StressSegment(segment.Line, color));
                 outputLines.Add(segment.Line);
                 outputStress.Add(segment.Stress);
                 outputColors.Add(color);
@@ -241,86 +252,43 @@ namespace StbGrasshopper
 
             if (_showLegend && _segments.Count > 0)
             {
-                DrawLegend(args);
+                StbLegend.Draw(args, Modes[_mode].LegendTitle, _legendMaximum);
             }
         }
 
-        private void DrawLegend(IGH_PreviewArgs args)
+        public override bool Write(GH_IWriter writer)
         {
-            const int width = 190;
-            const int height = 196;
-            const int barXOffset = 14;
-            const int barYOffset = 38;
-            const int barWidth = 24;
-            const int barHeight = 132;
-            const int steps = 22;
+            writer.SetInt32(ModeKey, _mode);
+            return base.Write(writer);
+        }
 
-            var viewport = args.Viewport.Bounds;
-            var left = Math.Max(viewport.Left + 8, viewport.Right - width - 18);
-            var top = viewport.Top + 18;
-            var panel = new Rectangle(left, top, width, height);
-
-            args.Display.Draw2dRectangle(
-                panel,
-                Color.FromArgb(220, 30, 34, 38),
-                1,
-                Color.FromArgb(230, 220, 225, 230));
-            args.Display.Draw2dText(
-                "Max normal stress [N/mm2]",
-                Color.White,
-                new Point2d(left + 10, top + 11),
-                false,
-                12);
-
-            for (var i = 0; i < steps; i++)
+        public override bool Read(GH_IReader reader)
+        {
+            if (reader.ItemExists(ModeKey))
             {
-                var normalized = 1.0 - (double)i / (steps - 1);
-                var y0 = top + barYOffset + i * barHeight / steps;
-                var y1 = top + barYOffset + (i + 1) * barHeight / steps;
-                args.Display.Draw2dRectangle(
-                    new Rectangle(
-                        left + barXOffset,
-                        y0,
-                        barWidth,
-                        Math.Max(1, y1 - y0 + 1)),
-                    StressColor(normalized),
-                    0,
-                    StressColor(normalized));
+                var mode = reader.GetInt32(ModeKey);
+                _mode = mode >= 0 && mode < Modes.Length ? mode : 0;
             }
 
-            DrawLegendValue(args, left + 48, top + barYOffset - 5, _legendMaximum);
-            DrawLegendValue(
-                args,
-                left + 48,
-                top + barYOffset + barHeight / 2 - 5,
-                _legendMaximum * 0.5);
-            DrawLegendValue(args, left + 48, top + barYOffset + barHeight - 5, 0.0);
+            return base.Read(reader);
         }
 
-        private static void DrawLegendValue(
-            IGH_PreviewArgs args,
-            int x,
-            int y,
-            double value)
+        private double StressAt(ElementForce force, StbSectionProperties section, double t)
         {
-            args.Display.Draw2dText(
-                value.ToString("0.###", CultureInfo.InvariantCulture),
-                Color.White,
-                new Point2d(x, y),
-                false,
-                12);
-        }
+            // Section forces follow the member sign convention, so interpolate the
+            // signed values first and take magnitudes afterwards; that keeps the
+            // bending stress at zero where the moment changes sign.
+            var axial = Math.Abs(force.Ni + (force.Nj - force.Ni) * t) * 1e3 / section.Area;
+            var bendingY = Math.Abs(Quadratic(force.Myi, force.Myc, force.Myj, t)) * 1e6 / section.Wy;
+            var bendingZ = Math.Abs(Quadratic(force.Mzi, force.Mzc, force.Mzj, t)) * 1e6 / section.Wz;
 
-        private static double StressMagnitude(
-            double axialForce,
-            double momentY,
-            double momentZ,
-            StbSectionProperties section)
-        {
-            var axial = Math.Abs(axialForce) * 1e3 / section.Area;
-            var bendingY = Math.Abs(momentY) * 1e6 / section.Wy;
-            var bendingZ = Math.Abs(momentZ) * 1e6 / section.Wz;
-            return axial + bendingY + bendingZ;
+            switch (_mode)
+            {
+                case 1: return axial;
+                case 2: return bendingY;
+                case 3: return bendingZ;
+                default: return axial + bendingY + bendingZ;
+            }
         }
 
         private static double Quadratic(double value0, double center, double value1, double t)
@@ -336,44 +304,22 @@ namespace StbGrasshopper
             return start + (end - start) * t;
         }
 
-        private static Color StressColor(double normalized)
+        private static bool IsFinite(double value)
         {
-            if (double.IsNaN(normalized) || double.IsInfinity(normalized))
-            {
-                return Color.FromArgb(38, 70, 190);
-            }
-
-            var t = Math.Max(0.0, Math.Min(1.0, normalized));
-            if (t <= 0.25)
-            {
-                return Blend(Color.FromArgb(38, 70, 190), Color.FromArgb(0, 190, 240), t / 0.25);
-            }
-
-            if (t <= 0.5)
-            {
-                return Blend(Color.FromArgb(0, 190, 240), Color.FromArgb(20, 195, 105), (t - 0.25) / 0.25);
-            }
-
-            if (t <= 0.75)
-            {
-                return Blend(Color.FromArgb(20, 195, 105), Color.FromArgb(255, 220, 45), (t - 0.5) / 0.25);
-            }
-
-            return Blend(Color.FromArgb(255, 220, 45), Color.FromArgb(225, 45, 35), (t - 0.75) / 0.25);
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
-        private static Color Blend(Color start, Color end, double t)
+        private sealed class StressMode
         {
-            return Color.FromArgb(
-                (int)Math.Round(start.R + (end.R - start.R) * t),
-                (int)Math.Round(start.G + (end.G - start.G) * t),
-                (int)Math.Round(start.B + (end.B - start.B) * t));
-        }
-
-            private static bool IsFinite(double value)
+            public StressMode(string name, string legendTitle)
             {
-                return !double.IsNaN(value) && !double.IsInfinity(value);
+                Name = name;
+                LegendTitle = legendTitle;
             }
+
+            public string Name { get; }
+            public string LegendTitle { get; }
+        }
 
         private sealed class RawStressSegment
         {
@@ -389,15 +335,13 @@ namespace StbGrasshopper
 
         private sealed class StressSegment
         {
-            public StressSegment(Line line, double stress, Color color)
+            public StressSegment(Line line, Color color)
             {
                 Line = line;
-                Stress = stress;
                 Color = color;
             }
 
             public Line Line { get; }
-            public double Stress { get; }
             public Color Color { get; }
         }
     }

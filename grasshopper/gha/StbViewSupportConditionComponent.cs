@@ -10,6 +10,13 @@ namespace StbGrasshopper
 {
     public sealed class StbViewSupportConditionComponent : GH_Component
     {
+        private static readonly Vector3d[] Axes = { Vector3d.XAxis, Vector3d.YAxis, Vector3d.ZAxis };
+        private static readonly Color RigidColor = Color.FromArgb(35, 105, 65);
+        private static readonly Color HingeColor = Color.FromArgb(40, 105, 175);
+        private static readonly Color PinColor = Color.FromArgb(220, 145, 30);
+        private static readonly Color RollerColor = Color.FromArgb(205, 210, 215);
+        private static readonly Color GroundColor = Color.FromArgb(75, 82, 90);
+
         private readonly List<SupportGlyph> _glyphs = new List<SupportGlyph>();
         private BoundingBox _clippingBox = BoundingBox.Empty;
         private double _size = 0.35;
@@ -19,13 +26,13 @@ namespace StbGrasshopper
                 "View Support Condition",
                 "View Sup",
                 "Display STB support conditions as consistent 3D symbols.",
-                "STB",
-                "View")
+                StbCategories.Tab,
+                StbCategories.Info)
         {
         }
 
         public override Guid ComponentGuid => new Guid("f7a8b9c0-1234-4456-0789-abcdef012345");
-        protected override Bitmap Icon => StbIcons.Support;
+        protected override Bitmap Icon => StbIcons.ViewSupport;
         public override BoundingBox ClippingBox => _clippingBox;
 
         protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -74,6 +81,12 @@ namespace StbGrasshopper
                 {
                     _clippingBox.Union(brep.GetBoundingBox(true));
                 }
+
+                foreach (var rail in glyph.Rails)
+                {
+                    _clippingBox.Union(rail.From);
+                    _clippingBox.Union(rail.To);
+                }
             }
 
             da.SetDataList(0, points);
@@ -108,179 +121,219 @@ namespace StbGrasshopper
             }
         }
 
+        /// <summary>
+        /// Two independent cues, so every combination stays readable:
+        /// the body shape is the rotational condition (flat top = rigid,
+        /// ridge = hinge line, apex = ball joint) and what carries the body
+        /// is the translational condition (ground = fixed, rollers = free).
+        /// </summary>
         private static SupportGlyph BuildGlyph(StbSupportModel support, double size)
         {
             var glyph = new SupportGlyph();
-            var allTranslations = support.Tx && support.Ty && support.Tz;
-            var noTranslations = !support.Tx && !support.Ty && !support.Tz;
-            var allRotations = support.Rx && support.Ry && support.Rz;
-            var noRotations = !support.Rx && !support.Ry && !support.Rz;
-            var darkGreen = Color.FromArgb(35, 105, 65);
-            var transparentGreen = Color.FromArgb(90, 80, 170, 110);
-            var blue = Color.FromArgb(40, 105, 175);
-            var orange = Color.FromArgb(220, 145, 30);
-            var red = Color.FromArgb(190, 55, 105);
-
-            if (allTranslations && allRotations)
-            {
-                glyph.Add(BoxAt(support.Point, size), darkGreen);
-            }
-            else if (noTranslations)
-            {
-                glyph.Add(BoxAt(support.Point, size * 0.72), transparentGreen);
-                AddRotationCylinders(glyph, support, size, red, onlyFixed: true);
-            }
-            else if (allTranslations)
-            {
-                if (noRotations)
-                {
-                    glyph.Add(SquarePyramidAt(support.Point, size), blue);
-                    glyph.Add(AxisCylinder(support.Point, Vector3d.ZAxis, size), red);
-                }
-                else if (!support.Rx && !support.Ry && support.Rz)
-                {
-                    glyph.Add(SquarePyramidAt(support.Point, size), blue);
-                }
-                else if (!support.Rx && support.Ry && support.Rz)
-                {
-                    glyph.Add(TrianglePrismAlongX(support.Point, size), blue);
-                    glyph.Add(AxisCylinder(support.Point, Vector3d.XAxis, size), red);
-                }
-                else if (support.Rx && !support.Ry && support.Rz)
-                {
-                    glyph.Add(TrianglePrismAlongY(support.Point, size), blue);
-                    glyph.Add(AxisCylinder(support.Point, Vector3d.YAxis, size), red);
-                }
-                else
-                {
-                    glyph.Add(SquarePyramidAt(support.Point, size), blue);
-                    AddRotationCylinders(glyph, support, size, red, onlyFixed: true);
-                }
-            }
-            else
-            {
-                glyph.Add(BoxAt(support.Point, size * 0.72), transparentGreen);
-                AddTranslationMarkers(glyph, support, size, orange);
-                AddRotationCylinders(glyph, support, size, red, onlyFixed: true);
-            }
-
-            if (support.Tx && support.Ty && !support.Tz)
-            {
-                AddZRails(glyph, support.Point, size);
-            }
-
-            glyph.Description = ConditionText(support, allTranslations, allRotations, noTranslations);
+            AddBody(glyph, support, size);
+            AddTranslationBase(glyph, support, size);
+            glyph.Description = ConditionText(support);
             return glyph;
         }
 
-        private static void AddTranslationMarkers(SupportGlyph glyph, StbSupportModel support, double size, Color color)
+        private static void AddBody(SupportGlyph glyph, StbSupportModel support, double size)
         {
-            if (!support.Tx) glyph.Add(BoxAt(support.Point + Vector3d.XAxis * size * 0.62, size * 0.12, size * 0.9, size * 0.9), color);
-            if (!support.Ty) glyph.Add(BoxAt(support.Point + Vector3d.YAxis * size * 0.62, size * 0.12, size * 0.9, size * 0.9), color);
-            if (!support.Tz) glyph.Add(BoxAt(support.Point - Vector3d.ZAxis * size * 0.72, size * 0.12, size * 1.25, size * 1.25), color);
+            var top = support.Point;
+            var height = size * 0.9;
+            var half = size * 0.6;
+            var xFree = !support.Rx;
+            var yFree = !support.Ry;
+            var zFree = !support.Rz;
+            var freeCount = (xFree ? 1 : 0) + (yFree ? 1 : 0) + (zFree ? 1 : 0);
+
+            if (freeCount == 0)
+            {
+                glyph.Add(Prism(top, half, half, height), RigidColor);
+                return;
+            }
+
+            if (freeCount == 3)
+            {
+                glyph.Add(Pyramid(top, half, height), HingeColor);
+                return;
+            }
+
+            if (xFree && yFree)
+            {
+                glyph.Add(Pyramid(top, half, height), HingeColor);
+            }
+            else if (xFree || yFree)
+            {
+                glyph.Add(Wedge(top, xFree ? 0 : 1, half, half, height), HingeColor);
+            }
+            else
+            {
+                glyph.Add(Prism(top, half, half, height), HingeColor);
+            }
+
+            // Only mixed conditions need pins: a plain box or pyramid already
+            // says "no rotation free" or "every rotation free".
+            var pinLength = size * 1.8;
+            var pinRadius = size * 0.12;
+            if (xFree) glyph.Add(Rod(top, Vector3d.XAxis, pinRadius, pinLength), PinColor);
+            if (yFree) glyph.Add(Rod(top, Vector3d.YAxis, pinRadius, pinLength), PinColor);
+            if (zFree) glyph.Add(Rod(top, Vector3d.ZAxis, pinRadius, pinLength), PinColor);
         }
 
-        private static void AddRotationCylinders(SupportGlyph glyph, StbSupportModel support, double size, Color color, bool onlyFixed = false)
+        private static void AddTranslationBase(SupportGlyph glyph, StbSupportModel support, double size)
         {
-            if (support.Rx == onlyFixed) glyph.Add(AxisCylinder(support.Point, Vector3d.XAxis, size), color);
-            if (support.Ry == onlyFixed) glyph.Add(AxisCylinder(support.Point, Vector3d.YAxis, size), color);
-            if (support.Rz == onlyFixed) glyph.Add(AxisCylinder(support.Point, Vector3d.ZAxis, size), color);
+            var bodyBottom = support.Point - Vector3d.ZAxis * size * 0.9;
+            var freeHorizontal = new List<int>();
+            if (!support.Tx) freeHorizontal.Add(0);
+            if (!support.Ty) freeHorizontal.Add(1);
+
+            if (!support.Tz)
+            {
+                AddVerticalSlider(glyph, support, size);
+                return;
+            }
+
+            var radius = size * 0.17;
+            var plateTop = bodyBottom;
+
+            if (freeHorizontal.Count == 1)
+            {
+                var along = Axes[freeHorizontal[0]];
+                var across = Axes[1 - freeHorizontal[0]];
+                var centre = bodyBottom - Vector3d.ZAxis * radius;
+                for (var side = -1; side <= 1; side += 2)
+                {
+                    glyph.Add(Rod(centre + along * (size * 0.42 * side), across, radius, size * 0.9), RollerColor);
+                }
+
+                plateTop = centre - Vector3d.ZAxis * radius;
+                for (var side = -1; side <= 1; side += 2)
+                {
+                    var offset = plateTop + across * (size * 0.5 * side);
+                    glyph.Rails.Add(new Line(offset - along * size * 0.95, offset + along * size * 0.95));
+                }
+            }
+            else if (freeHorizontal.Count == 2)
+            {
+                var centre = bodyBottom - Vector3d.ZAxis * radius;
+                foreach (var dx in new[] { -1, 1 })
+                {
+                    foreach (var dy in new[] { -1, 1 })
+                    {
+                        glyph.Add(Ball(centre + new Vector3d(size * 0.42 * dx, size * 0.42 * dy, 0.0), radius), RollerColor);
+                    }
+                }
+
+                plateTop = centre - Vector3d.ZAxis * radius;
+            }
+
+            glyph.Add(Prism(plateTop, size * 0.95, size * 0.95, size * 0.12), GroundColor);
         }
 
-        private static void AddZRails(SupportGlyph glyph, Point3d point, double size)
+        /// <summary>
+        /// Tz free: the body is held by guide bars instead of resting on the ground.
+        /// </summary>
+        private static void AddVerticalSlider(SupportGlyph glyph, StbSupportModel support, double size)
         {
-            var half = size * 0.48;
-            var bottom = point - Vector3d.ZAxis * size * 0.72;
-            glyph.Rails.Add(new Line(bottom + Vector3d.XAxis * half, bottom + Vector3d.XAxis * half + Vector3d.ZAxis * size * 0.62));
-            glyph.Rails.Add(new Line(bottom - Vector3d.XAxis * half, bottom - Vector3d.XAxis * half + Vector3d.ZAxis * size * 0.62));
+            if (!support.Tx && !support.Ty)
+            {
+                return;
+            }
+
+            var guide = support.Tx ? Vector3d.XAxis : Vector3d.YAxis;
+            var rollerAxis = support.Tx ? Vector3d.YAxis : Vector3d.XAxis;
+            var radius = size * 0.13;
+            var mid = support.Point - Vector3d.ZAxis * size * 0.45;
+
+            for (var side = -1; side <= 1; side += 2)
+            {
+                var barTop = support.Point + guide * (size * 0.92 * side) + Vector3d.ZAxis * size * 0.45;
+                glyph.Add(Prism(barTop, size * 0.1, size * 0.5, size * 1.8, guide), GroundColor);
+                glyph.Add(Rod(mid + guide * (size * 0.73 * side), rollerAxis, radius, size * 0.7), RollerColor);
+                var railBase = support.Point + guide * (size * 1.02 * side);
+                glyph.Rails.Add(new Line(railBase + Vector3d.ZAxis * size * 0.45, railBase - Vector3d.ZAxis * size * 1.35));
+            }
         }
 
-        private static string ConditionText(StbSupportModel support, bool allTranslations, bool allRotations, bool noTranslations)
+        private static string ConditionText(StbSupportModel support)
         {
-            var translation = (support.Tx ? "Tx " : "") + (support.Ty ? "Ty " : "") + (support.Tz ? "Tz" : "");
-            var rotation = (support.Rx ? "Rx " : "") + (support.Ry ? "Ry " : "") + (support.Rz ? "Rz" : "");
-            var type = allTranslations && allRotations
-                ? "Fixed"
-                : noTranslations
-                    ? "Free translation"
-                    : allTranslations
-                        ? "Pinned / rotational"
-                        : "Partial translation";
-            return type + " [" + translation.Trim() + (rotation.Length > 0 ? "; " + rotation.Trim() : "") + "]";
+            var translationFixed = support.Tx && support.Ty && support.Tz;
+            var rotationFixed = support.Rx && support.Ry && support.Rz;
+            var rotationFree = !support.Rx && !support.Ry && !support.Rz;
+            var freeRotationAxes = (support.Rx ? "" : "X") + (support.Ry ? "" : "Y") + (support.Rz ? "" : "Z");
+
+            string name;
+            if (translationFixed)
+            {
+                name = rotationFixed ? "Fixed" : rotationFree ? "Pin" : "Hinge about " + freeRotationAxes;
+            }
+            else if (support.Tz)
+            {
+                name = "Roller along " + (!support.Tx && !support.Ty ? "XY" : support.Tx ? "Y" : "X");
+            }
+            else if (support.Tx || support.Ty)
+            {
+                name = "Vertical slider";
+            }
+            else
+            {
+                name = "Free translation";
+            }
+
+            var free = (support.Tx ? "" : "Tx ") + (support.Ty ? "" : "Ty ") + (support.Tz ? "" : "Tz ")
+                + (support.Rx ? "" : "Rx ") + (support.Ry ? "" : "Ry ") + (support.Rz ? "" : "Rz");
+            return name + " [free: " + (free.Length == 0 ? "none" : free.Trim()) + "]";
         }
 
-        private static Brep BoxAt(Point3d point, double size)
+        /// <summary>Box whose top face is centred on <paramref name="top"/>.</summary>
+        private static Brep Prism(Point3d top, double halfX, double halfY, double height)
         {
-            return BoxAt(point, size, size, size);
+            return Prism(top, halfX, halfY, height, Vector3d.XAxis);
         }
 
-        private static Brep BoxAt(Point3d point, double height, double width, double depth)
+        private static Brep Prism(Point3d top, double halfX, double halfY, double height, Vector3d xAxis)
         {
-            var box = new Box(
-                new Plane(point - Vector3d.ZAxis * height, Vector3d.ZAxis),
-                new Interval(-width * 0.5, width * 0.5),
-                new Interval(-depth * 0.5, depth * 0.5),
-                new Interval(0.0, height));
+            var plane = new Plane(top - Vector3d.ZAxis * height, xAxis, Vector3d.CrossProduct(Vector3d.ZAxis, xAxis));
+            var box = new Box(plane, new Interval(-halfX, halfX), new Interval(-halfY, halfY), new Interval(0.0, height));
             return box.ToBrep();
         }
 
-        private static Brep SquarePyramidAt(Point3d point, double size)
+        private static Brep Pyramid(Point3d apex, double half, double height)
         {
-            var bottom = point - Vector3d.ZAxis * size;
-            var half = size * 0.75;
+            var bottom = apex - Vector3d.ZAxis * height;
             var mesh = new Mesh();
             var a = mesh.Vertices.Add(bottom + new Vector3d(-half, -half, 0));
             var b = mesh.Vertices.Add(bottom + new Vector3d(half, -half, 0));
             var c = mesh.Vertices.Add(bottom + new Vector3d(half, half, 0));
             var d = mesh.Vertices.Add(bottom + new Vector3d(-half, half, 0));
-            var apex = mesh.Vertices.Add(point);
-            mesh.Faces.AddFace(a, b, apex);
-            mesh.Faces.AddFace(b, c, apex);
-            mesh.Faces.AddFace(c, d, apex);
-            mesh.Faces.AddFace(d, a, apex);
+            var tip = mesh.Vertices.Add(apex);
+            mesh.Faces.AddFace(a, b, tip);
+            mesh.Faces.AddFace(b, c, tip);
+            mesh.Faces.AddFace(c, d, tip);
+            mesh.Faces.AddFace(d, a, tip);
             mesh.Faces.AddFace(d, c, b, a);
             mesh.Normals.ComputeNormals();
             return Brep.CreateFromMesh(mesh, true);
         }
 
-        private static Brep TrianglePrismAlongX(Point3d point, double size)
+        /// <summary>Triangular prism whose top ridge runs along the X or Y axis through <paramref name="ridge"/>.</summary>
+        private static Brep Wedge(Point3d ridge, int axis, double halfLength, double halfWidth, double height)
         {
-            var halfLength = size * 0.52;
-            var halfWidth = size * 0.5;
-            var height = size * Math.Sqrt(3.0) * 0.5;
+            var along = Axes[axis];
+            var across = Axes[1 - axis];
+            var drop = Vector3d.ZAxis * height;
             var vertices = new[]
             {
-                point - Vector3d.XAxis * halfLength + Vector3d.YAxis * halfWidth - Vector3d.ZAxis * height,
-                point - Vector3d.XAxis * halfLength - Vector3d.YAxis * halfWidth - Vector3d.ZAxis * height,
-                point - Vector3d.XAxis * halfLength,
-                point + Vector3d.XAxis * halfLength + Vector3d.YAxis * halfWidth - Vector3d.ZAxis * height,
-                point + Vector3d.XAxis * halfLength - Vector3d.YAxis * halfWidth - Vector3d.ZAxis * height,
-                point + Vector3d.XAxis * halfLength,
+                ridge - along * halfLength,
+                ridge - along * halfLength + across * halfWidth - drop,
+                ridge - along * halfLength - across * halfWidth - drop,
+                ridge + along * halfLength,
+                ridge + along * halfLength + across * halfWidth - drop,
+                ridge + along * halfLength - across * halfWidth - drop,
             };
-            return TrianglePrism(vertices);
-        }
 
-        private static Brep TrianglePrismAlongY(Point3d point, double size)
-        {
-            var halfLength = size * 0.52;
-            var halfWidth = size * 0.5;
-            var height = size * Math.Sqrt(3.0) * 0.5;
-            var vertices = new[]
-            {
-                point - Vector3d.YAxis * halfLength + Vector3d.XAxis * halfWidth - Vector3d.ZAxis * height,
-                point - Vector3d.YAxis * halfLength - Vector3d.XAxis * halfWidth - Vector3d.ZAxis * height,
-                point - Vector3d.YAxis * halfLength,
-                point + Vector3d.YAxis * halfLength + Vector3d.XAxis * halfWidth - Vector3d.ZAxis * height,
-                point + Vector3d.YAxis * halfLength - Vector3d.XAxis * halfWidth - Vector3d.ZAxis * height,
-                point + Vector3d.YAxis * halfLength,
-            };
-            return TrianglePrism(vertices);
-        }
-
-        private static Brep TrianglePrism(IReadOnlyList<Point3d> vertices)
-        {
             var mesh = new Mesh();
-            for (var i = 0; i < vertices.Count; i++) mesh.Vertices.Add(vertices[i]);
+            foreach (var vertex in vertices) mesh.Vertices.Add(vertex);
             mesh.Faces.AddFace(0, 1, 2);
             mesh.Faces.AddFace(3, 5, 4);
             mesh.Faces.AddFace(0, 3, 4, 1);
@@ -290,11 +343,15 @@ namespace StbGrasshopper
             return Brep.CreateFromMesh(mesh, true);
         }
 
-        private static Brep AxisCylinder(Point3d point, Vector3d axis, double size)
+        private static Brep Rod(Point3d centre, Vector3d axis, double radius, double length)
         {
-            var plane = new Plane(point - axis * size * 0.45, axis);
-            var cylinder = new Cylinder(new Circle(plane, size * 0.16), size * 0.9);
-            return cylinder.ToBrep(true, true);
+            var plane = new Plane(centre - axis * (length * 0.5), axis);
+            return new Cylinder(new Circle(plane, radius), length).ToBrep(true, true);
+        }
+
+        private static Brep Ball(Point3d centre, double radius)
+        {
+            return new Sphere(centre, radius).ToBrep();
         }
 
         private sealed class SupportGlyph

@@ -43,6 +43,44 @@ _FORCE_SIGN_FLAT = np.array(
 #from classes.elm import Elm1D
 
 
+def _condense_plane_fixed_end_forces(f, vi, mi, vj, mj, li, lj, L, sign):
+    """Condense rigid fixed-end forces of one bending plane through end springs.
+
+    f rows vi/mi/vj/mj are shear/moment at the i and j ends (all load cases).
+    li, lj are the joint factors (0 = pin, 1 = rigid). sign is +1 when the
+    shear-rotation coupling is +6EI/L^2 (local z bending) and -1 otherwise.
+    """
+    if li >= 1.0 and lj >= 1.0:
+        return
+    ui = 1.0 - li
+    uj = 1.0 - lj
+    ai = 4.0 * ui + 6.0 * li
+    aj = 4.0 * uj + 6.0 * lj
+    den = ai * aj - 4.0 * ui * uj
+    pmi = f[mi].copy()
+    pmj = f[mj].copy()
+    f[mi] = 6.0 * li * (aj * pmi - 2.0 * uj * pmj) / den
+    f[mj] = 6.0 * lj * (ai * pmj - 2.0 * ui * pmi) / den
+    shear = 6.0 / L * (ui * (2.0 * uj + 6.0 * lj) * pmi + uj * (2.0 * ui + 6.0 * li) * pmj) / den
+    f[vi] -= sign * shear
+    f[vj] += sign * shear
+
+
+def _release_fixed_end_forces(e):
+    """Adjust member fixed-end forces (e.elds) for EJNT end springs / pins."""
+    jnt = e.jnt
+    if jnt is None or e.elds is None or jnt.Ryi is None:
+        return
+    EIy = e.sec.mat.E * e.sec.Iy
+    EIz = e.sec.mat.E * e.sec.Iz
+    lyi = min(max(jnt.Ryi / EIy, 0.0), 1.0)
+    lyj = min(max(jnt.Ryj / EIy, 0.0), 1.0)
+    lzi = min(max(jnt.Rzi / EIz, 0.0), 1.0)
+    lzj = min(max(jnt.Rzj / EIz, 0.0), 1.0)
+    _condense_plane_fixed_end_forces(e.elds, 1, 5, 7, 11, lzi, lzj, e.len, 1.0)
+    _condense_plane_fixed_end_forces(e.elds, 2, 4, 8, 10, lyi, lyj, e.len, -1.0)
+
+
 def _as_dense_disps(disps):
     """Normalize solver output to a dense 2D displacement matrix."""
     if np.ndim(disps) == 1:
@@ -904,6 +942,9 @@ class Solve:
                 for k, e in enumerate(elms):
                     e.elds[:, col] += f[k]
                     e.glds[:, col] += gvec[k]
+
+        for e in self.mdl.elms:
+            _release_fixed_end_forces(e)
 
         connected = self._IndexBoundaryAssocs()
         for e in self.mdl.elms:

@@ -18,14 +18,15 @@ namespace StbGrasshopper
                 "STB Area Tributary",
                 "STB ATrib",
                 "Distribute an STB area load onto its boundary members as equivalent trapezoidal line loads.",
-                "STB",
-                "Model")
+                StbCategories.Tab,
+                StbCategories.Load)
         {
         }
 
         public override Guid ComponentGuid => new Guid("a7c4e2d1-8b3f-4a91-9c2e-5d6f1a0b8c47");
+        public override GH_Exposure Exposure => GH_Exposure.tertiary;
 
-        protected override Bitmap Icon => StbIcons.LineLoad;
+        protected override Bitmap Icon => StbIcons.AreaTributary;
 
         public override BoundingBox ClippingBox
         {

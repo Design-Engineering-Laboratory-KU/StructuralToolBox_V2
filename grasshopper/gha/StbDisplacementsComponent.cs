@@ -13,8 +13,8 @@ namespace StbGrasshopper
                 "STB Displacements",
                 "STB Disp",
                 "Extract nodal displacement rows from an STB result object.",
-                "STB",
-                "Results")
+                StbCategories.Tab,
+                StbCategories.Post)
         {
         }
 

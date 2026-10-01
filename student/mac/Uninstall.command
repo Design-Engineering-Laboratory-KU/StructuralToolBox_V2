@@ -23,6 +23,7 @@ rm -rf "$HOME/Applications/Structural Toolbox (debug).app"
 rm -f "$HOME/Applications/Structural Toolbox をアンインストール.command"
 rm -f "$HOME/Desktop/Structural Toolbox"
 rm -f "$HOME/Library/Application Support/Grasshopper/Libraries/StbGrasshopper.gha"
+rm -f "$HOME/Library/Application Support/McNeel/Rhinoceros/"*/Plug-ins/Grasshopper\ \(*\)/Libraries/StbGrasshopper.gha
 
 osascript <<'EOF' || true
 display dialog "Structural Toolbox を削除しました。" buttons {"OK"} default button 1 with title "Structural Toolbox"

@@ -39,15 +39,16 @@ namespace StbGrasshopper
                 "STB Force Diagram",
                 "STB FDiagram",
                 "Draw a selected member force diagram and output its values in kN or kNm.",
-                "STB",
-                "Results")
+                StbCategories.Tab,
+                StbCategories.Post)
         {
         }
 
         public override Guid ComponentGuid =>
             new Guid("7a7f6f8c-62a2-4e07-9ef3-0b1c8d6e4f51");
+        public override GH_Exposure Exposure => GH_Exposure.secondary;
 
-        protected override Bitmap Icon => StbIcons.Forces;
+        protected override Bitmap Icon => StbIcons.ForceDiagram;
 
         public override BoundingBox ClippingBox => _clippingBox;
 
@@ -215,7 +216,7 @@ namespace StbGrasshopper
             var outputElementIds = new List<int>();
             foreach (var segment in rawSegments)
             {
-                var color = ForceColor(Math.Abs(segment.CenterValue) / _legendMaximum);
+                var color = StbLegend.ColorFor(Math.Abs(segment.CenterValue) / _legendMaximum);
                 _segments.Add(new DiagramSegment(segment.Line, segment.Value, segment.ElementId, segment.TextNormal, color));
                 _valueLabels.Add(new ValueLabel(segment.StartPoint, segment.Value, segment.TextNormal, color));
                 if (segment.IsLast)
@@ -428,7 +429,7 @@ namespace StbGrasshopper
             {
                 args.Display.DrawLine(
                     guide.Line,
-                    ForceColor(Math.Abs(guide.Value) / _legendMaximum),
+                    StbLegend.ColorFor(Math.Abs(guide.Value) / _legendMaximum),
                     2);
             }
 
@@ -461,7 +462,7 @@ namespace StbGrasshopper
 
             if (_showLegend && _segments.Count > 0)
             {
-                DrawLegend(args);
+                StbLegend.Draw(args, "|" + _componentLabel + "| [" + _unitLabel + "]", _legendMaximum);
             }
         }
 
@@ -528,46 +529,6 @@ namespace StbGrasshopper
             }
         }
 
-        private void DrawLegend(IGH_PreviewArgs args)
-        {
-            const int width = 150;
-            const int barXOffset = 14;
-            const int barYOffset = 38;
-            const int barWidth = 24;
-            const int barHeight = 250;
-            const int steps = 7;
-            const int legendHeight = barYOffset + barHeight;
-            var legendTextColor = Color.FromArgb(55, 60, 65);
-
-            var viewport = args.Viewport.Bounds;
-            var left = Math.Max(viewport.Left + 8, viewport.Right - width - 18);
-            var top = Math.Max(viewport.Top + 8, viewport.Top + (viewport.Height - legendHeight) / 2);
-            args.Display.Draw2dText(_componentLabel + " [" + _unitLabel + "]", legendTextColor, new Point2d(left + 10, top + 11), false, 18);
-
-            for (var i = 0; i < steps; i++)
-            {
-                var normalized = 1.0 - (double)i / (steps - 1);
-                var y0 = top + barYOffset + i * barHeight / steps;
-                var y1 = top + barYOffset + (i + 1) * barHeight / steps;
-                args.Display.Draw2dRectangle(
-                    new Rectangle(left + barXOffset, y0, barWidth, Math.Max(1, y1 - y0 + 1)),
-                    ForceColor(normalized), 0, ForceColor(normalized));
-            }
-
-            for (var i = 0; i <= steps; i++)
-            {
-                var normalized = (double)i / steps;
-                var value = _legendMaximum * (1.0 - 2.0 * normalized);
-                var y = top + barYOffset + i * barHeight / steps - 5;
-                DrawLegendValue(args, left + 48, y, value, legendTextColor);
-            }
-        }
-
-        private static void DrawLegendValue(IGH_PreviewArgs args, int x, int y, double value, Color textColor)
-        {
-            args.Display.Draw2dText(value.ToString("0.0", CultureInfo.InvariantCulture), textColor, new Point2d(x, y), false, 18);
-        }
-
         private static bool TryGetComponent(int component, out ForceComponentInfo info)
         {
             switch (component)
@@ -597,28 +558,6 @@ namespace StbGrasshopper
             var lc = 4.0 * t * (1.0 - t);
             var l1 = 2.0 * t * (t - 0.5);
             return valueI * l0 + valueCenter * lc + valueJ * l1;
-        }
-
-        private static Color ForceColor(double normalized)
-        {
-            if (double.IsNaN(normalized) || double.IsInfinity(normalized))
-            {
-                return Color.FromArgb(35, 70, 180);
-            }
-
-            var t = Math.Max(0.0, Math.Min(1.0, normalized));
-            var palette = new[]
-            {
-                Color.FromArgb(35, 70, 180),
-                Color.FromArgb(35, 120, 220),
-                Color.FromArgb(0, 190, 220),
-                Color.FromArgb(35, 170, 90),
-                Color.FromArgb(245, 220, 40),
-                Color.FromArgb(245, 145, 25),
-                Color.FromArgb(215, 35, 35),
-            };
-            var index = (int)Math.Floor(t * palette.Length);
-            return palette[Math.Min(palette.Length - 1, index)];
         }
 
         private static bool IsFinite(double value)

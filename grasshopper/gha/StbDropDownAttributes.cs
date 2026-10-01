@@ -8,18 +8,29 @@ using Grasshopper.Kernel.Attributes;
 
 namespace StbGrasshopper
 {
+    /// <summary>A component that exposes one choice through a body drop-down.</summary>
+    internal interface IStbDropDownOwner
+    {
+        int DropDownCount { get; }
+        int DropDownSelection { get; }
+        string DropDownName(int index);
+        void SetDropDownSelection(int index);
+    }
+
     /// <summary>
-    /// Adds a section-type drop-down to the Section component body.
+    /// Adds a drop-down strip below the component body.
     /// </summary>
-    internal sealed class StbSectionAttributes : GH_ComponentAttributes
+    internal sealed class StbDropDownAttributes : GH_ComponentAttributes
     {
         private static readonly Color DropDownColor = Color.FromArgb(70, 76, 82);
-        private readonly StbSectionComponent _owner;
+        private readonly GH_Component _component;
+        private readonly IStbDropDownOwner _owner;
         private RectangleF _dropDownBounds;
 
-        public StbSectionAttributes(StbSectionComponent owner)
-            : base(owner)
+        public StbDropDownAttributes(GH_Component component, IStbDropDownOwner owner)
+            : base(component)
         {
+            _component = component;
             _owner = owner;
         }
 
@@ -32,20 +43,18 @@ namespace StbGrasshopper
             const float dropDownPadding = 34f;
 
             var original = Bounds;
-            var longestTypeName = 0;
-            for (var type = 0; type < StbSectionDimensions.TypeCount; type++)
+            var longestName = 0;
+            for (var index = 0; index < _owner.DropDownCount; index++)
             {
-                longestTypeName = Math.Max(
-                    longestTypeName,
-                    GH_FontServer.StringWidth(
-                        StbSectionDimensions.TypeName(type),
-                        GH_FontServer.Standard));
+                longestName = Math.Max(
+                    longestName,
+                    GH_FontServer.StringWidth(_owner.DropDownName(index), GH_FontServer.Standard));
             }
 
             // base.Layout() has already sized the component for the current
             // input/output labels. Only enlarge it when the drop-down needs
             // more room.
-            var dropDownWidth = longestTypeName + dropDownPadding;
+            var dropDownWidth = longestName + dropDownPadding;
             var width = Math.Max(original.Width, dropDownWidth + margin * 2f);
             var left = original.X - (width - original.Width) * 0.5f;
             Bounds = new RectangleF(left, original.Y, width, original.Height + stripHeight);
@@ -54,7 +63,7 @@ namespace StbGrasshopper
             // complete parameter attribute to the new edge instead of asking
             // the layout helpers to expand the label regions outwards.
             var inputOffset = Bounds.Left - original.Left;
-            foreach (var input in _owner.Params.Input)
+            foreach (var input in _component.Params.Input)
             {
                 if (input.Attributes == null)
                 {
@@ -70,7 +79,7 @@ namespace StbGrasshopper
             }
 
             var outputOffset = Bounds.Right - original.Right;
-            foreach (var output in _owner.Params.Output)
+            foreach (var output in _component.Params.Output)
             {
                 if (output.Attributes == null)
                 {
@@ -125,7 +134,7 @@ namespace StbGrasshopper
                 textBounds.X += 6f;
                 textBounds.Width -= 22f;
                 graphics.DrawString(
-                    _owner.SectionTypeName,
+                    _owner.DropDownName(_owner.DropDownSelection),
                     SystemFonts.MessageBoxFont,
                     textBrush,
                     textBounds,
@@ -154,25 +163,24 @@ namespace StbGrasshopper
             }
 
             var menu = new ContextMenuStrip();
-            for (var type = 0; type < StbSectionDimensions.TypeCount; type++)
+            for (var index = 0; index < _owner.DropDownCount; index++)
             {
-                var item = new ToolStripMenuItem(StbSectionDimensions.TypeName(type))
+                var item = new ToolStripMenuItem(_owner.DropDownName(index))
                 {
-                    Checked = type == _owner.SectionType,
-                    Tag = type,
+                    Checked = index == _owner.DropDownSelection,
+                    Tag = index,
                 };
                 menu.Items.Add(item);
             }
 
             menu.ItemClicked += (_, args) =>
             {
-                if (args.ClickedItem.Tag is int selectedType)
+                if (args.ClickedItem.Tag is int selected)
                 {
                     // Run after the native drop-down has closed. Modifying
                     // Grasshopper parameters during ToolStrip dispatch can be
                     // ignored or fail silently on some Rhino 8 builds.
-                    sender.BeginInvoke(
-                        new Action(() => _owner.SetSectionType(selectedType)));
+                    sender.BeginInvoke(new Action(() => _owner.SetDropDownSelection(selected)));
                 }
             };
             menu.Show(sender, e.ControlLocation);

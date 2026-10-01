@@ -1,7 +1,7 @@
 ; Structural Toolbox - Windows installer (Inno Setup 6)
 ; Shortcuts point to Start Structural Toolbox.bat (always present).
 ; stb.exe is created later by Install_once.bat in [Run].
-; Install_once.bat also copies grasshopper\StbGrasshopper.gha when Grasshopper is installed.
+; Install_once.bat also copies grasshopper\StbGrasshopper.gha to %APPDATA%\Grasshopper\Libraries.
 
 #ifndef StbSourceDir
   #define StbSourceDir "dist\_installer_staging\Payload"
@@ -33,6 +33,10 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
+; With RedirectionGuard on, the virtualenv launcher started from [Run] exits with
+; 0xC00004BC (STATUS_UNTRUSTED_MOUNT_POINT). Setup never elevates, so there is
+; nothing for the mitigation to protect here.
+RedirectionGuard=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\python-embed\python.exe
@@ -59,6 +63,9 @@ Name: "{group}\{#MyAppName} をアンインストール"; Filename: "{uninstalle
 
 [Run]
 Filename: "{app}\Install_once.bat"; Parameters: "/silent"; WorkingDir: "{app}"; StatusMsg: "同梱のライブラリをセットアップしています（2〜5 分）..."; Flags: waituntilterminated runhidden
+
+[UninstallDelete]
+Type: files; Name: "{userappdata}\Grasshopper\Libraries\StbGrasshopper.gha"
 
 [Code]
 function StbExePath: string;

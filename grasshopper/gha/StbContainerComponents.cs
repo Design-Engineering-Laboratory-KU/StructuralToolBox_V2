@@ -7,7 +7,7 @@ namespace StbGrasshopper
     public sealed class StbLoadContainerComponent : GH_Component
     {
         public StbLoadContainerComponent()
-            : base("STb Load Container", "STb Load", "Collect STb loads into one typed list.", "STB", "0_params") { }
+            : base("STb Load Container", "STb Load", "Collect STb loads into one typed list.", StbCategories.Tab, StbCategories.Param) { }
 
         public override Guid ComponentGuid => new Guid("f4b6e6b9-7d4d-4b31-8f7c-1d0e5d9a6c01");
         protected override System.Drawing.Bitmap Icon => StbIcons.LoadContainer;
@@ -32,7 +32,7 @@ namespace StbGrasshopper
     public sealed class StbMaterialContainerComponent : GH_Component
     {
         public StbMaterialContainerComponent()
-            : base("STb Mat Container", "STb Mat", "Collect STb materials into one typed list.", "STB", "0_params") { }
+            : base("STb Mat Container", "STb Mat", "Collect STb materials into one typed list.", StbCategories.Tab, StbCategories.Param) { }
 
         public override Guid ComponentGuid => new Guid("f4b6e6b9-7d4d-4b31-8f7c-1d0e5d9a6c02");
         protected override System.Drawing.Bitmap Icon => StbIcons.MaterialContainer;
@@ -57,7 +57,7 @@ namespace StbGrasshopper
     public sealed class StbSectionContainerComponent : GH_Component
     {
         public StbSectionContainerComponent()
-            : base("STb Section Container", "STb Sec", "Collect STb sections into one typed list.", "STB", "0_params") { }
+            : base("STb Section Container", "STb Sec", "Collect STb sections into one typed list.", StbCategories.Tab, StbCategories.Param) { }
 
         public override Guid ComponentGuid => new Guid("f4b6e6b9-7d4d-4b31-8f7c-1d0e5d9a6c03");
         protected override System.Drawing.Bitmap Icon => StbIcons.SectionContainer;
@@ -82,7 +82,7 @@ namespace StbGrasshopper
     public sealed class StbModelContainerComponent : GH_Component
     {
         public StbModelContainerComponent()
-            : base("STb Model Container", "STb Model", "Contain one STb model.", "STB", "0_params") { }
+            : base("STb Model Container", "STb Model", "Contain one STb model.", StbCategories.Tab, StbCategories.Param) { }
 
         public override Guid ComponentGuid => new Guid("f4b6e6b9-7d4d-4b31-8f7c-1d0e5d9a6c04");
         protected override System.Drawing.Bitmap Icon => StbIcons.ModelContainer;
@@ -107,7 +107,7 @@ namespace StbGrasshopper
     public sealed class StbElementContainerComponent : GH_Component
     {
         public StbElementContainerComponent()
-            : base("STb Elem Container", "STb Elem", "Collect STb elements into one typed list.", "STB", "0_params") { }
+            : base("STb Elem Container", "STb Elem", "Collect STb elements into one typed list.", StbCategories.Tab, StbCategories.Param) { }
 
         public override Guid ComponentGuid => new Guid("f4b6e6b9-7d4d-4b31-8f7c-1d0e5d9a6c05");
         protected override System.Drawing.Bitmap Icon => StbIcons.ElementContainer;
@@ -132,7 +132,7 @@ namespace StbGrasshopper
     public sealed class StbSupportContainerComponent : GH_Component
     {
         public StbSupportContainerComponent()
-            : base("STb Support Container", "STb Sup", "Collect STb supports into one typed list.", "STB", "0_params") { }
+            : base("STb Support Container", "STb Sup", "Collect STb supports into one typed list.", StbCategories.Tab, StbCategories.Param) { }
 
         public override Guid ComponentGuid => new Guid("f4b6e6b9-7d4d-4b31-8f7c-1d0e5d9a6c06");
         protected override System.Drawing.Bitmap Icon => StbIcons.SupportContainer;

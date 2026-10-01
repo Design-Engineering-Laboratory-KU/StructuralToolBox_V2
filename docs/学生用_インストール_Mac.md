@@ -88,7 +88,7 @@
 
 ## 5. Grasshopper を使う場合
 
-インストール時に Grasshopper が見つかれば、プラグイン `StbGrasshopper.gha` を自動で配置します（`~/Library/Application Support/Grasshopper/Libraries`）。
+インストール時に、プラグイン `StbGrasshopper.gha` を Rhino 8 の Grasshopper ライブラリフォルダへ自動で配置します（`~/Library/Application Support/McNeel/Rhinoceros/8.0/Plug-ins/Grasshopper (b45a29b1-4343-4035-989e-044e8580d9cf)/Libraries`）。
 
 - Rhino を起動中だった場合は、Rhino を終了して `Install_once.command` を実行する
 - STB コンポーネントの **Python Exe** と **Repo Root** は **空のまま**でよい（インストール先の専用 Python を自動で使います）

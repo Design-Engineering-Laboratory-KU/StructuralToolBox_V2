@@ -134,16 +134,18 @@ function Include-GrasshopperPlugin {
     $artifact = Join-Path $RepoRoot 'grasshopper\gha\bin\Release\StbGrasshopper.gha'
     $tempLibraries = Join-Path $DistDir '_gha_build_libraries'
 
-    if (-not (Test-Path -LiteralPath $artifact)) {
-        if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-            throw "Grasshopper plugin is missing and dotnet was not found: $artifact"
-        }
-
+    if (Get-Command dotnet -ErrorAction SilentlyContinue) {
         Write-Host 'Building Grasshopper plugin for the installer payload ...'
         dotnet build $project -c Release -p:GrasshopperLibrariesPath=$tempLibraries
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $artifact)) {
             throw "Failed to build Grasshopper plugin: $project"
         }
+    }
+    elseif (-not (Test-Path -LiteralPath $artifact)) {
+        throw "Grasshopper plugin is missing and dotnet was not found: $artifact"
+    }
+    else {
+        Write-Warning "dotnet not found; bundling the existing $artifact"
     }
 
     $pluginDir = Join-Path $Dest 'grasshopper'

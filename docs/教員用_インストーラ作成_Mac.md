@@ -1,5 +1,7 @@
 # 教員用 — Mac インストーラの作成
 
+> 実際に通した手順とエラー対策のまとめ: [教員用_インストーラ作成_手順まとめ.md](教員用_インストーラ作成_手順まとめ.md)
+
 学生には、Windows の Setup.exe と同様に **Python 同梱のインストーラ**を渡せます。システムに入っている Python は使いません。
 
 ---
@@ -37,15 +39,19 @@ PowerShell でリポジトリ直下から:
 
 出力: `student/dist/StructuralToolbox_Mac_Setup_YYYYMMDD.tar.gz`（約 130 MB）
 
-この tar.gz だけで配布できます。.dmg と .pkg は Mac 上で同じスクリプトを実行したときだけ追加されます。
+この tar.gz だけで配布できます。同時に `student/dist/StructuralToolbox_Mac_make_pkg_YYYYMMDD.sh` も出力されます。
 
 ---
 
 ## 手順（Mac）
 
+Windows で作った tar.gz と `make_pkg_YYYYMMDD.sh` を Mac の同じフォルダに置いて実行します（リポジトリ不要）。
+
 ```bash
-./student/build_student_installer_mac.sh
+bash StructuralToolbox_Mac_make_pkg_YYYYMMDD.sh
 ```
+
+リポジトリ全体が Mac にある場合は `./student/build_student_installer_mac.sh` でも作れます。
 
 追加で次が出ます。
 
@@ -75,7 +81,7 @@ Apple Developer ID で署名・公証していないため、初回起動時に�
 
 ## Grasshopper
 
-ビルド機に .NET SDK と Rhino 8 がある場合、`StbGrasshopper.gha` を同梱します（依存 DLL は Rhino 側が提供するため、同梱は `.gha` 1 ファイルのみ）。学生の Mac に Grasshopper の Libraries フォルダがあれば、初回セットアップでそこへコピーします。
+ビルド機に .NET SDK がある場合、毎回 `StbGrasshopper.gha` をビルドし直して同梱します（依存 DLL は Rhino 側が提供するため、同梱は `.gha` 1 ファイルのみ）。初回セットアップで `~/Library/Application Support/McNeel/Rhinoceros/8.0/Plug-ins/Grasshopper (b45a29b1-4343-4035-989e-044e8580d9cf)/Libraries` を作成してコピーします。
 
 STB コンポーネントは **Python Exe / Repo Root が空**でも、インストール先の専用 `.venv` を自動で使います。見つからない場合は、PATH 上の Python を使わずエラーにします。
 

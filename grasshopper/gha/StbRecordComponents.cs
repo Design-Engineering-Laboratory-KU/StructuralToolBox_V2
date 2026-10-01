@@ -21,8 +21,9 @@ namespace StbGrasshopper
 
     public sealed class StbDatNodesComponent : GH_Component
     {
-        public StbDatNodesComponent() : base("STB DAT Nodes", "STB DAT Nodes", "Read NODE records from an existing STB .dat file.", "STB", "Model") { }
+        public StbDatNodesComponent() : base("STB DAT Nodes", "STB DAT Nodes", "Read NODE records from an existing STB .dat file.", StbCategories.Tab, StbCategories.Assemble) { }
         public override Guid ComponentGuid => new Guid("279ef031-21dd-4fda-b262-baa1e473a66f");
+        public override GH_Exposure Exposure => GH_Exposure.secondary;
 
         protected override Bitmap Icon => StbIcons.DatNodes;
 
@@ -78,8 +79,9 @@ namespace StbGrasshopper
 
     public sealed class StbDatBeamsComponent : GH_Component
     {
-        public StbDatBeamsComponent() : base("STB DAT Beams", "STB DAT Beams", "Read ELEM records from an existing STB .dat file.", "STB", "Model") { }
+        public StbDatBeamsComponent() : base("STB DAT Beams", "STB DAT Beams", "Read ELEM records from an existing STB .dat file.", StbCategories.Tab, StbCategories.Assemble) { }
         public override Guid ComponentGuid => new Guid("8b2f4a19-6c3d-4f0a-9f1e-2d8b7a4c1e03");
+        public override GH_Exposure Exposure => GH_Exposure.secondary;
 
         protected override Bitmap Icon => StbIcons.DatBeams;
 
@@ -131,7 +133,7 @@ namespace StbGrasshopper
 
     public sealed class StbElementComponent : GH_Component
     {
-        public StbElementComponent() : base("STb Element", "STb Elem", "Create an STb element from a line and section.", "STB", "Model") { }
+        public StbElementComponent() : base("STb Element", "STb Elem", "Create an STb element from a line and section.", StbCategories.Tab, StbCategories.Element) { }
         public override Guid ComponentGuid => new Guid("e9ac94fe-4ee4-4d15-b16b-7881e3b1f622");
 
         protected override Bitmap Icon => StbIcons.Element;
@@ -179,7 +181,7 @@ namespace StbGrasshopper
 
     public sealed class StbMaterialComponent : GH_Component
     {
-        public StbMaterialComponent() : base("STb Mat", "STb Mat", "Create an STb material object.", "STB", "Model") { }
+        public StbMaterialComponent() : base("STb Mat", "STb Mat", "Create an STb material object.", StbCategories.Tab, StbCategories.Material) { }
         public override Guid ComponentGuid => new Guid("2c6d678d-92f9-4ee5-a171-e95d64b1411b");
 
         protected override Bitmap Icon => StbIcons.Material;
@@ -222,12 +224,12 @@ namespace StbGrasshopper
         }
     }
 
-    public sealed class StbSectionComponent : GH_Component
+    public sealed class StbSectionComponent : GH_Component, IStbDropDownOwner
     {
         private const string SectionTypeKey = "SectionType";
         private int _sectionType;
 
-        public StbSectionComponent() : base("STb Section", "STb Sec", "Create an STb section object.", "STB", "Model") { }
+        public StbSectionComponent() : base("STb Section", "STb Sec", "Create an STb section object.", StbCategories.Tab, StbCategories.Section) { }
         public override Guid ComponentGuid => new Guid("fd94f3c4-1574-45dc-bd80-6635f18517dd");
 
         protected override Bitmap Icon => StbIcons.Section;
@@ -236,9 +238,14 @@ namespace StbGrasshopper
 
         internal string SectionTypeName => StbSectionDimensions.TypeName(_sectionType);
 
+        int IStbDropDownOwner.DropDownCount => StbSectionDimensions.TypeCount;
+        int IStbDropDownOwner.DropDownSelection => _sectionType;
+        string IStbDropDownOwner.DropDownName(int index) => StbSectionDimensions.TypeName(index);
+        void IStbDropDownOwner.SetDropDownSelection(int index) => SetSectionType(index);
+
         public override void CreateAttributes()
         {
-            m_attributes = new StbSectionAttributes(this);
+            m_attributes = new StbDropDownAttributes(this, this);
         }
 
         protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -378,7 +385,7 @@ namespace StbGrasshopper
     {
         private readonly bool[] _restraints = { true, true, true, true, true, true };
 
-        public StbSupportComponent() : base("STb Support", "STb Sup", "Create STb support objects from points.", "STB", "Model") { }
+        public StbSupportComponent() : base("STb Support", "STb Sup", "Create STb support objects from points.", StbCategories.Tab, StbCategories.Support) { }
         public override Guid ComponentGuid => new Guid("54816191-f022-43a1-b094-9bb5cf4bc371");
 
         protected override Bitmap Icon => StbIcons.Support;
@@ -456,7 +463,7 @@ namespace StbGrasshopper
 
     public sealed class StbLoadComponent : GH_Component
     {
-        public StbLoadComponent() : base("STb Load", "STb Load", "Create STb point load objects from points.", "STB", "Model") { }
+        public StbLoadComponent() : base("STb Load", "STb Load", "Create STb point load objects from points.", StbCategories.Tab, StbCategories.Load) { }
         public override Guid ComponentGuid => new Guid("fcf0fb0e-33d0-4926-a09f-1f1bbffcfbc1");
 
         protected override Bitmap Icon => StbIcons.PointLoad;
@@ -509,8 +516,8 @@ namespace StbGrasshopper
                 "STb Load",
                 "STb LLoad",
                 "Create an STb distributed load on a frame element.",
-                "STB",
-                "Model")
+                StbCategories.Tab,
+                StbCategories.Load)
         {
         }
 
@@ -611,8 +618,8 @@ namespace StbGrasshopper
                 "STb Load",
                 "STb ALoad",
                 "Create an STb area load bounded by three or four frame elements.",
-                "STB",
-                "Model")
+                StbCategories.Tab,
+                StbCategories.Load)
         {
         }
 
@@ -687,9 +694,205 @@ namespace StbGrasshopper
         }
     }
 
+    public sealed class StbGravityLoadComponent : GH_Component
+    {
+        public StbGravityLoadComponent()
+            : base(
+                "STb Gravity Load",
+                "STb GLoad",
+                "Create an STb gravity (self-weight) load. Each member is loaded by its mass (section area x material Gamma) times the acceleration.",
+                StbCategories.Tab,
+                StbCategories.Load)
+        {
+        }
+
+        public override Guid ComponentGuid => new Guid("3c6f0a52-7d1e-4b8a-9f35-2e8d41c7b906");
+
+        protected override Bitmap Icon => StbIcons.GravityLoad;
+
+        protected override void RegisterInputParams(GH_InputParamManager pManager)
+        {
+            pManager.AddIntegerParameter("LC", "LC", "Load case id.", GH_ParamAccess.item, 0);
+            pManager.AddVectorParameter(
+                "Acceleration",
+                "G",
+                "Acceleration vector in global coordinates in m/s2. (0, 0, -9.80665) gives self weight.",
+                GH_ParamAccess.item,
+                new Vector3d(0.0, 0.0, -9.80665));
+        }
+
+        protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+        {
+            pManager.AddParameter(new StbLoadParameter(), "STb Load", "Ld", "STB gravity load object.", GH_ParamAccess.item);
+        }
+
+        protected override void SolveInstance(IGH_DataAccess da)
+        {
+            int loadCase = 0;
+            var acceleration = new Vector3d(0.0, 0.0, -9.80665);
+            da.GetData(0, ref loadCase);
+            da.GetData(1, ref acceleration);
+
+            if (acceleration.IsZero)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Acceleration is zero; the gravity load has no effect.");
+            }
+
+            da.SetData(0, new StbLoadGoo(new StbLoadModel
+            {
+                Kind = StbLoadKind.Gravity,
+                LoadCase = loadCase,
+                Acceleration = acceleration,
+            }));
+        }
+    }
+
+    public sealed class StbJointComponent : GH_Component
+    {
+        public StbJointComponent()
+            : base(
+                "STb Joint",
+                "STb Joint",
+                "Set member-end rotational springs (EJNT) on an STb element. Leave an input empty for a rigid end; 0 makes a pin.",
+                StbCategories.Tab,
+                StbCategories.Element)
+        {
+        }
+
+        public override Guid ComponentGuid => new Guid("8e1b5d47-2a9c-4f63-b0d8-6c3e7a91f254");
+        public override GH_Exposure Exposure => GH_Exposure.secondary;
+
+        protected override Bitmap Icon => StbIcons.Joint;
+
+        protected override void RegisterInputParams(GH_InputParamManager pManager)
+        {
+            pManager.AddParameter(new StbElementParameter(), "STb Element", "Elem", "Element to modify.", GH_ParamAccess.item);
+            pManager.AddNumberParameter("Ryi", "Ryi", "Spring about local y at the i-end in kNm/rad. Empty = rigid, 0 = pin.", GH_ParamAccess.item);
+            pManager.AddNumberParameter("Rzi", "Rzi", "Spring about local z at the i-end in kNm/rad. Empty = rigid, 0 = pin.", GH_ParamAccess.item);
+            pManager.AddNumberParameter("Ryj", "Ryj", "Spring about local y at the j-end in kNm/rad. Empty = rigid, 0 = pin.", GH_ParamAccess.item);
+            pManager.AddNumberParameter("Rzj", "Rzj", "Spring about local z at the j-end in kNm/rad. Empty = rigid, 0 = pin.", GH_ParamAccess.item);
+            for (var i = 1; i <= 4; i++)
+            {
+                pManager[i].Optional = true;
+            }
+        }
+
+        protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+        {
+            pManager.AddParameter(new StbElementParameter(), "STb Element", "Elem", "Element with EJNT springs.", GH_ParamAccess.item);
+        }
+
+        protected override void SolveInstance(IGH_DataAccess da)
+        {
+            StbElementGoo elementGoo = null;
+            if (!da.GetData(0, ref elementGoo) || elementGoo?.Value == null)
+            {
+                return;
+            }
+
+            var element = elementGoo.Value.Duplicate();
+            var values = new double?[4];
+            for (var i = 0; i < 4; i++)
+            {
+                double value = 0.0;
+                if (!da.GetData(i + 1, ref value))
+                {
+                    continue;
+                }
+
+                if (value < 0.0 || double.IsNaN(value) || double.IsInfinity(value))
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Error, Params.Input[i + 1].Name + " must be zero or positive.");
+                    return;
+                }
+
+                values[i] = value;
+            }
+
+            element.JointRyi = values[0];
+            element.JointRzi = values[1];
+            element.JointRyj = values[2];
+            element.JointRzj = values[3];
+            if (!element.HasJoint)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "All inputs are empty; the element stays rigid.");
+            }
+
+            da.SetData(0, new StbElementGoo(element));
+        }
+    }
+
+    public sealed class StbLoadCombinationComponent : GH_Component
+    {
+        public StbLoadCombinationComponent()
+            : base(
+                "STb Load Combination",
+                "STb LCMB",
+                "Create an STb load combination (LCMB): LC = sum of factor x load case.",
+                StbCategories.Tab,
+                StbCategories.Load)
+        {
+        }
+
+        public override Guid ComponentGuid => new Guid("5d2a9e80-4c7b-4f16-8a3d-91b6e0c5f723");
+        public override GH_Exposure Exposure => GH_Exposure.secondary;
+
+        protected override Bitmap Icon => StbIcons.LoadCombination;
+
+        protected override void RegisterInputParams(GH_InputParamManager pManager)
+        {
+            pManager.AddIntegerParameter("LC", "LC", "Combination load case id. Must differ from load cases that have loads.", GH_ParamAccess.item, 2);
+            pManager.AddTextParameter("Name", "Name", "Combination name.", GH_ParamAccess.item, string.Empty);
+            pManager.AddNumberParameter("Factors", "F", "Factor for each combined load case.", GH_ParamAccess.list);
+            pManager.AddIntegerParameter("Load Cases", "LCs", "Load cases to combine, in the same order as Factors.", GH_ParamAccess.list);
+            pManager[1].Optional = true;
+        }
+
+        protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+        {
+            pManager.AddParameter(new StbLoadParameter(), "STb Load", "Ld", "STB load combination object. Connect to STB Assemble Model Ld.", GH_ParamAccess.item);
+        }
+
+        protected override void SolveInstance(IGH_DataAccess da)
+        {
+            int loadCase = 2;
+            string name = string.Empty;
+            var factors = new List<double>();
+            var cases = new List<int>();
+            da.GetData(0, ref loadCase);
+            da.GetData(1, ref name);
+            if (!da.GetDataList(2, factors) || !da.GetDataList(3, cases))
+            {
+                return;
+            }
+
+            if (factors.Count != cases.Count)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Factors and Load Cases must have the same length.");
+                return;
+            }
+
+            if (cases.Contains(loadCase))
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "A combination cannot include its own load case LC" + loadCase + ".");
+                return;
+            }
+
+            var load = new StbLoadModel
+            {
+                Kind = StbLoadKind.Combination,
+                LoadCase = loadCase,
+                CombinationName = name ?? string.Empty,
+            };
+            load.CombinationFactors.AddRange(factors);
+            load.CombinationCases.AddRange(cases);
+            da.SetData(0, new StbLoadGoo(load));
+        }
+    }
+
     public sealed class StbAssembleModelComponent : GH_Component
     {
-        public StbAssembleModelComponent() : base("STB Assemble Model", "STb Model", "Assemble typed STB model objects into a .dat text file.", "STB", "Model") { }
+        public StbAssembleModelComponent() : base("STB Assemble Model", "STb Model", "Assemble typed STB model objects into a .dat text file.", StbCategories.Tab, StbCategories.Assemble) { }
         public override Guid ComponentGuid => new Guid("ce8a157a-b1b7-4d92-918f-e6ce2294af1c");
 
         protected override Bitmap Icon => StbIcons.Assemble;

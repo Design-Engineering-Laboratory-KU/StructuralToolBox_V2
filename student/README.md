@@ -11,8 +11,9 @@
 
 中身は同じ（同梱 Python + `.venv` + `stb gui` + Grasshopper `.gha`）。
 
-Grasshopperがインストール済みで `%APPDATA%\Grasshopper\Libraries` が存在する場合、
-初回セットアップ時に `StbGrasshopper.gha` を自動配置します。Rhinoが起動中で
+初回セットアップ時に `StbGrasshopper.gha` を Grasshopper のライブラリフォルダ
+（Windows: `%APPDATA%\Grasshopper\Libraries`、Mac: `~/Library/Application Support/McNeel/Rhinoceros/8.0/Plug-ins/Grasshopper (b45a29b1-…)/Libraries`）
+へ自動配置します。フォルダが無ければ作成します。Rhinoが起動中で
 配置できない場合は、Rhinoを終了して `Install_once.bat` を再実行してください。
 
 ---
@@ -109,7 +110,11 @@ Windows 用 ZIP / Setup.exe は使えません。Mac 用は別のインストー
 
 出力: `student/dist/StructuralToolbox_Mac_Setup_YYYYMMDD.tar.gz`
 
-Mac 上で同じスクリプトを実行すると `.dmg` と `.pkg` も作られます。
+Windows でビルドすると `student/dist/StructuralToolbox_Mac_make_pkg_YYYYMMDD.sh` も出力されます。
+これと tar.gz を Mac の同じフォルダに置いて `bash StructuralToolbox_Mac_make_pkg_YYYYMMDD.sh`
+を実行すると、リポジトリなしで `.dmg` と `.pkg` ができます。
+
+リポジトリ全体を Mac に置いた場合は、同じスクリプトを Mac 上で実行しても `.dmg` と `.pkg` が作られます。
 
 ```bash
 ./student/build_student_installer_mac.sh

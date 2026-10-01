@@ -12,8 +12,8 @@ namespace StbGrasshopper
                 "STB Forces",
                 "STB Forces",
                 "Extract element force rows from an STB result object.",
-                "STB",
-                "Results")
+                StbCategories.Tab,
+                StbCategories.Post)
         {
         }
 

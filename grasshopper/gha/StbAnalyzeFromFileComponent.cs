@@ -7,12 +7,13 @@ namespace StbGrasshopper
     public sealed class StbAnalyzeFromFileComponent : GH_Component
     {
         public StbAnalyzeFromFileComponent()
-            : base("STb Analyze from file", "STb Analyze File", "Analyze an existing STB DAT file and output an STb Model.", "STB", "Analyze")
+            : base("STb Analyze from file", "STb Analyze File", "Analyze an existing STB DAT file and output an STb Model.", StbCategories.Tab, StbCategories.Analyze)
         {
         }
 
         public override Guid ComponentGuid => new Guid("b9c0d1e2-3456-4789-abcd-ef0123456789");
-        protected override Bitmap Icon => StbIcons.Analyze;
+        public override GH_Exposure Exposure => GH_Exposure.secondary;
+        protected override Bitmap Icon => StbIcons.AnalyzeFromFile;
 
         protected override void RegisterInputParams(GH_InputParamManager pManager)
         {

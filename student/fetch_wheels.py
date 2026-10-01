@@ -30,6 +30,9 @@ RUNTIME = [
 # Windows embeddable Python, which has no venv module.
 TOOLING = ["pip", "setuptools", "wheel"]
 WINDOWS_TOOLING = ["virtualenv"]
+# pip evaluates environment markers on the host PC. Downloading macOS wheels
+# from Windows therefore skips uvloop (required by uvicorn[standard] on Unix).
+MACOS_EXTRA = ["uvloop"]
 
 # One pip run per architecture, with every macOS version tag that ships wheels.
 # pip treats the first tag as highest priority, so the oldest macOS comes first
@@ -122,6 +125,8 @@ def build(target: str, py_version: str) -> Path:
     requirements = list(RUNTIME)
     if target == "windows":
         requirements += WINDOWS_TOOLING
+    elif target == "macos":
+        requirements += MACOS_EXTRA
 
     print("Downloading wheels for " + target + " (Python " + py_version + ")")
     for name, tags in PLATFORM_GROUPS[target].items():
