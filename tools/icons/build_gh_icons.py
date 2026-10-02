@@ -55,6 +55,7 @@ BADGED = {
     "AssemblyFromFile": ("icons_C_Mdl", "file"),
     "DatBeams": ("icons_C_Elem1D", "file"),
     "ViewSupport": ("icons_C_Sup", "view"),
+    "ViewLoad": ("icons_C_Load_P", "view"),
 }
 
 

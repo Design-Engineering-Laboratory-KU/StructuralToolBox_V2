@@ -22,7 +22,7 @@ groups appear in workflow order. Items after `/` sit on the lower row of the gro
 | `06.Assemble` | STB Assemble Model / STb Assembly from file, STB DAT Nodes, STB DAT Beams |
 | `07.Analyze` | STb Analyze / STb Analyze from file |
 | `08.Post` | Displacements, Reactions, Forces / Deformed Shape, Force Diagram, Stress |
-| `99.Info` | STB Load Cases, View Support Condition |
+| `99.Info` | STB Load Cases, View Support Condition, View Load |
 
 ## Icons
 
@@ -112,6 +112,13 @@ python tools/icons/build_gh_icons.py
   | Two rollers plus rails | free along the rail direction |
   | Four balls | free in the XY plane |
   | Guide bars beside the body | `Tz` free (vertical slider) |
+- `View Load`: input typed `STb Model` and/or `Load` list, `LC`, `Scale`, `Values` → output
+  load case ids, arrow lines, and load descriptions. Previews point loads (red force arrow
+  ending at the node, purple double-headed moment arrow), line loads (orange trapezoidal
+  arrow row; local loads use the element `Beta` from the model), area loads (shaded blue
+  panel with pressure arrows), and gravity loads (one symbolic arrow beside the model).
+  `LC` = -1 shows every load case; a combination LC shows its load cases multiplied by
+  their factors. Each load kind is scaled separately because their units differ.
 - `STB Deformed Shape`: displays the deformed model with a scale slider and legend
 
 The current solver does not include the member-axis component of an `ELOD` in

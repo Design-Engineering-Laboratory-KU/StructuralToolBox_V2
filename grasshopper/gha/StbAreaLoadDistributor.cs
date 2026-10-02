@@ -134,6 +134,24 @@ namespace StbGrasshopper
             public Point3d V1;
         }
 
+        /// <summary>Panel corners in loop order, or null when the boundary is not one closed loop.</summary>
+        public static List<Point3d> BoundaryPolygon(IReadOnlyList<Line> lines, double tolerance)
+        {
+            var loop = BuildBoundaryLoop(lines, tolerance);
+            if (loop == null)
+            {
+                return null;
+            }
+
+            var corners = new List<Point3d>(loop.Count);
+            foreach (var edge in loop)
+            {
+                corners.Add(edge.V0);
+            }
+
+            return corners;
+        }
+
         private static List<LoopEdge> BuildBoundaryLoop(IReadOnlyList<Line> lines, double tolerance)
         {
             if (lines == null || lines.Count < 3 || lines.Count > 4)

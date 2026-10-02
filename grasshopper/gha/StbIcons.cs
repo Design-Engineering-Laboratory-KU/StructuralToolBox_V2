@@ -38,6 +38,7 @@ namespace StbGrasshopper
         public static Bitmap ForceDiagram => Get("ForceDiagram");
         public static Bitmap Stress => Get("Stress");
         public static Bitmap ViewSupport => Get("ViewSupport");
+        public static Bitmap ViewLoad => Get("ViewLoad");
         public static Bitmap LoadContainer => Get("LoadContainer");
         public static Bitmap MaterialContainer => Get("MaterialContainer");
         public static Bitmap SectionContainer => Get("SectionContainer");
