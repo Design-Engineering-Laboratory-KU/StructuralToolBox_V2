@@ -314,7 +314,7 @@ namespace StbGrasshopper
                 var wj = load.LoadAtJ;
                 if (!load.IsGlobal)
                 {
-                    LocalAxes(load.ElementLine, FindBeta(model, load.ElementLine), out var x, out var y, out var z);
+                    StbMemberAxes.Compute(load.ElementLine, FindBeta(model, load.ElementLine), out var x, out var y, out var z);
                     wi = x * wi.X + y * wi.Y + z * wi.Z;
                     wj = x * wj.X + y * wj.Y + z * wj.Z;
                 }
@@ -506,32 +506,6 @@ namespace StbGrasshopper
             }
 
             return 0.0;
-        }
-
-        /// <summary>Member axes as classes/elm.py Elm1D.CalcBeta (Beta in degrees).</summary>
-        private static void LocalAxes(Line line, double betaDegrees, out Vector3d x, out Vector3d y, out Vector3d z)
-        {
-            const double presAngle = 0.001;
-            x = line.Direction;
-            x.Unitize();
-            var beta = betaDegrees * Math.PI / 180.0;
-            var angle = Vector3d.VectorAngle(x, Vector3d.ZAxis);
-
-            if (angle < presAngle || Math.Abs(angle - Math.PI) < presAngle)
-            {
-                var alpha = Math.Abs(angle - Math.PI) < presAngle ? 0.5 * Math.PI : -0.5 * Math.PI;
-                y = Vector3d.XAxis;
-                y.Rotate(beta + alpha, x);
-            }
-            else
-            {
-                y = Vector3d.CrossProduct(Vector3d.ZAxis, x);
-                y.Unitize();
-                y.Rotate(beta, x);
-            }
-
-            z = Vector3d.CrossProduct(x, y);
-            z.Unitize();
         }
 
         private void AddArrow(LoadArrow arrow)

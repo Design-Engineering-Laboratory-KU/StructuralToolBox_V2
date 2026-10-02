@@ -8378,6 +8378,13 @@ function updateForceLegend(forceId, lc) {
     "LOAD CASE: " + lc;
 }
 
+// The solver reports shear and moment of bottom-to-top vertical members with
+// flipped signs (classes/solve.py _FORCE_SIGN_VERT); distributed-load terms
+// must flip with them.
+function memberLoadSign(e) {
+  return e.is_vxz && e.vx && e.vx[2] > 0 ? -1 : 1;
+}
+
 function computeDispFac(model, forceId, lcKey, frcFactor) {
   const b = model.bounds;
   if (!b) return 1;
@@ -8407,16 +8414,17 @@ function computeDispFac(model, forceId, lcKey, frcFactor) {
       const lds = e.local_wloads && e.local_wloads[lcKey];
       if (!f || !lds) continue;
       const len = e.len || 1;
-      const wzi = lds[2], wzj = lds[5], wyi = lds[1], wyj = lds[4];
+      const s = memberLoadSign(e);
+      const wzi = s * lds[2], wzj = s * lds[5], wyi = s * lds[1], wyj = s * lds[4];
       if (forceId === 5) {
         const qzi = f[2], myi = f[4];
         const wXc = wzi + (wzj - wzi) * 0.5;
-        const mXc = myi + qzi * 0.5 * len + (1 / 6) * (wzi + 2 * wXc) * (0.5 * len) ** 2;
+        const mXc = myi + qzi * 0.5 * len + (1 / 6) * (2 * wzi + wXc) * (0.5 * len) ** 2;
         overallMax = Math.max(overallMax, Math.abs(mXc));
       } else if (forceId === 6) {
         const qyi = f[1], mzi = f[5];
         const wXc = wyi + (wyj - wyi) * 0.5;
-        const mXc = mzi - qyi * 0.5 * len - (1 / 6) * (wyi + 2 * wXc) * (0.5 * len) ** 2;
+        const mXc = mzi - qyi * 0.5 * len - (1 / 6) * (2 * wyi + wXc) * (0.5 * len) ** 2;
         overallMax = Math.max(overallMax, Math.abs(mXc));
       }
     }
@@ -8516,7 +8524,9 @@ function buildForceDiagrams(model) {
 
     const p0 = nodePosition(n0, model, lc, defFac, deformed);
     const p1 = nodePosition(n1, model, lc, defFac, deformed);
-    const lds = (e.local_wloads && e.local_wloads[lcKey]) || [0, 0, 0, 0, 0, 0];
+    const loadSign = memberLoadSign(e);
+    const lds = ((e.local_wloads && e.local_wloads[lcKey]) || [0, 0, 0, 0, 0, 0])
+      .map(function (w) { return loadSign * w; });
     const stemPts = [];
     const splinePts = [];
     const labels = [];
@@ -8596,9 +8606,9 @@ function buildForceDiagrams(model) {
       const wzi = lds[2], wzj = lds[5];
       const qzi = f[2], myi = f[4], myj = f[10];
       const wXc = wzi + (wzj - wzi) * 0.5;
-      const mXcCalc = myi + qzi * 0.5 * e.len + (1 / 6) * (wzi + 2 * wXc) * (0.5 * e.len) ** 2;
+      const mXcCalc = myi + qzi * 0.5 * e.len + (1 / 6) * (2 * wzi + wXc) * (0.5 * e.len) ** 2;
       const mXc = Number.isFinite(f[12]) ? f[12] : mXcCalc;
-      const mEndCalc = myi + qzi * e.len + (1 / 6) * (wzi + 2 * wzj) * e.len * e.len;
+      const mEndCalc = myi + qzi * e.len + (1 / 6) * (2 * wzi + wzj) * e.len * e.len;
       const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vz, -dispFac * mXc);
 
       for (let i = 0; i <= divNum; i++) {
@@ -8606,7 +8616,7 @@ function buildForceDiagrams(model) {
         const x = t * e.len;
         const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
         const wX = wzi + (wzj - wzi) * t;
-        const mRaw = myi + qzi * x + (1 / 6) * (wzi + 2 * wX) * x * x;
+        const mRaw = myi + qzi * x + (1 / 6) * (2 * wzi + wX) * x * x;
         const mX = anchorDiagramValue(mRaw, mXcCalc, mEndCalc, mXc, myj, t);
         const ptF = pt.clone().addScaledVector(vz, -dispFac * mX);
         stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
@@ -8624,9 +8634,9 @@ function buildForceDiagrams(model) {
       const wyi = lds[1], wyj = lds[4];
       const qyi = f[1], mzi = f[5], mzj = f[11];
       const wXc = wyi + (wyj - wyi) * 0.5;
-      const mXcCalc = mzi - qyi * 0.5 * e.len - (1 / 6) * (wyi + 2 * wXc) * (0.5 * e.len) ** 2;
+      const mXcCalc = mzi - qyi * 0.5 * e.len - (1 / 6) * (2 * wyi + wXc) * (0.5 * e.len) ** 2;
       const mXc = Number.isFinite(f[13]) ? f[13] : mXcCalc;
-      const mEndCalc = mzi - qyi * e.len - (1 / 6) * (wyi + 2 * wyj) * e.len * e.len;
+      const mEndCalc = mzi - qyi * e.len - (1 / 6) * (2 * wyi + wyj) * e.len * e.len;
       const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vy, dispFac * mXc);
 
       for (let i = 0; i <= divNum; i++) {
@@ -8634,7 +8644,7 @@ function buildForceDiagrams(model) {
         const x = t * e.len;
         const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
         const wX = wyi + (wyj - wyi) * t;
-        const mRaw = mzi - qyi * x - (1 / 6) * (wyi + 2 * wX) * x * x;
+        const mRaw = mzi - qyi * x - (1 / 6) * (2 * wyi + wX) * x * x;
         const mX = anchorDiagramValue(mRaw, mXcCalc, mEndCalc, mXc, mzj, t);
         const ptF = pt.clone().addScaledVector(vy, dispFac * mX);
         stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);

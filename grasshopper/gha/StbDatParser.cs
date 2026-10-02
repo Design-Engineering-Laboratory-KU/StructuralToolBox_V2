@@ -18,6 +18,7 @@ namespace StbGrasshopper
         public int NodeI { get; set; }
         public int NodeJ { get; set; }
         public int SectionId { get; set; }
+        public double Beta { get; set; }
     }
 
     public static class StbDatParser
@@ -102,6 +103,11 @@ namespace StbGrasshopper
                     NodeJ = int.Parse(parts[3].Trim(), CultureInfo.InvariantCulture),
                     SectionId = int.Parse(parts[4].Trim(), CultureInfo.InvariantCulture),
                 };
+                if (parts.Length > 5
+                    && double.TryParse(parts[5].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var beta))
+                {
+                    element.Beta = beta;
+                }
                 return true;
             }
             catch (FormatException)

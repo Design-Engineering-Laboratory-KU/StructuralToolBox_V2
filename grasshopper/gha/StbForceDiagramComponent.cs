@@ -134,17 +134,19 @@ namespace StbGrasshopper
                     continue;
                 }
 
-                var axis = end - start;
-                if (axis.Length <= 1e-9)
+                var memberLine = new Line(start, end);
+                if (memberLine.Length <= 1e-9)
                 {
                     continue;
                 }
 
-                axis.Unitize();
-                var localY = LocalYAxis(axis);
-                var localZ = Vector3d.CrossProduct(axis, localY);
-                localZ.Unitize();
-                var diagramDirection = DiagramDirection(componentInfo.Label, localY, localZ);
+                StbMemberAxes.Compute(memberLine, element.Beta, out var axis, out var localY, out var localZ);
+                var diagramDirection = DiagramDirection(
+                    componentInfo.Label,
+                    axis,
+                    localY,
+                    localZ,
+                    StbMemberAxes.IsVertical(memberLine));
                 var textNormal = Vector3d.CrossProduct(axis, diagramDirection);
                 textNormal.Unitize();
                 GetForceValues(force, componentInfo, out var valueI, out var valueCenter, out var valueJ);
@@ -495,34 +497,26 @@ namespace StbGrasshopper
             return (value < 0.0 ? -1.0 : 1.0) * _textSize * 0.5;
         }
 
-        private static Vector3d LocalYAxis(Vector3d axis)
-        {
-            var localY = Vector3d.CrossProduct(Vector3d.ZAxis, axis);
-            if (localY.Length <= 1e-9)
-            {
-                localY = Vector3d.XAxis;
-            }
-
-            localY.Unitize();
-            return localY;
-        }
-
-        private static Vector3d DiagramDirection(string label, Vector3d localY, Vector3d localZ)
+        /// <summary>
+        /// Offset direction for a positive value, matching the browser GUI
+        /// (stb_gui/static/viewer.js buildForceDiagrams). The solver reports
+        /// vertical members with flipped moment signs, so their My and Mz
+        /// directions flip to keep moments on the tension side.
+        /// </summary>
+        private static Vector3d DiagramDirection(string label, Vector3d axis, Vector3d localY, Vector3d localZ, bool vertical)
         {
             switch (label)
             {
                 case "Vy":
-                case "Mz":
                     return localY;
                 case "Vz":
-                case "My":
-                    if (label == "My")
-                    {
-                        return -localZ;
-                    }
-
                     return localZ;
+                case "My":
+                    return vertical ? localZ : -localZ;
+                case "Mz":
+                    return vertical ? -localY : localY;
                 case "Nx":
+                    return vertical && axis.Z < 0.0 ? -localZ : localZ;
                 case "Mx":
                 default:
                     return localZ;

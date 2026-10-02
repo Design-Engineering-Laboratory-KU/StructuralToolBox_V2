@@ -33,8 +33,10 @@ LARGE_SYSTEM_NNZ = 200000
 
 # Sign flips applied to member-end forces for reporting. Index 6 (fxj) and
 # 9 (mxj) are left as-is; the rest depend on whether the member is vertical.
+# In both tables each j-end entry is the negated i-end entry, so a section
+# force keeps one sign convention along the member.
 _FORCE_SIGN_VERT = np.array(
-    [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0]
+    [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 )
 _FORCE_SIGN_FLAT = np.array(
     [-1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0, -1.0]
@@ -489,6 +491,9 @@ class Solve:
         w = self._ElemLocalWLoadsBatch(elms, nlc)
         half = 0.5 * lens
         half2 = half ** 2
+        # Vertical members report shear and moment with flipped signs, so the
+        # load term of the mid-span moment flips with them.
+        load_sign = np.where(vert, -1.0, 1.0)[:, None]
         wzi = w[:, 2, :]
         wzj = w[:, 5, :]
         wyi = w[:, 1, :]
@@ -497,11 +502,11 @@ class Solve:
         wxc_y = wyi + (wyj - wyi) * 0.5
         forces[:, 12, :] = (
             forces[:, 4, :] + forces[:, 2, :] * half[:, None]
-            + (1.0 / 6.0) * (wzi + 2.0 * wxc_z) * half2[:, None]
+            + load_sign * (1.0 / 6.0) * (2.0 * wzi + wxc_z) * half2[:, None]
         )
         forces[:, 13, :] = (
             forces[:, 5, :] - forces[:, 1, :] * half[:, None]
-            - (1.0 / 6.0) * (wyi + 2.0 * wxc_y) * half2[:, None]
+            - load_sign * (1.0 / 6.0) * (2.0 * wyi + wxc_y) * half2[:, None]
         )
 
         for k, e in enumerate(elms):
