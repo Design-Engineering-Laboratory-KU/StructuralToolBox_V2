@@ -162,6 +162,33 @@ def create_venv(python: Path, pip_args: list[str], silent: bool) -> None:
         raise Failure(".venv の作成に失敗しました。")
 
 
+def pin_venv_stdlib(python: Path) -> None:
+    """Point the .venv interpreter at the bundled standard library.
+
+    virtualenv copies the embeddable python.exe into .venv\\Scripts without its
+    ._pth file. The embeddable package keeps the standard library in a zip, so
+    the copy cannot find it and falls back to the registry: on a PC with its own
+    Python 3.12 it loads that install's Lib and DLLs and crashes (0xC0000005)
+    as soon as ctypes is imported, e.g. by pip. A ._pth next to the copy fixes
+    sys.path and also makes it ignore PYTHONHOME / PYTHONPATH.
+    """
+    if not IS_WINDOWS:
+        return
+    pth_files = sorted(python.parent.glob("python3*._pth"))
+    if not pth_files:
+        raise Failure("同梱 Python の ._pth がありません。配布ファイルを展開し直してください。")
+    embed = python.parent.name
+    target = venv_python().parent / pth_files[0].name
+    lines = [
+        "..\\..\\" + embed + "\\" + pth_files[0].stem + ".zip",
+        "..\\..\\" + embed,
+        "",
+        "import site",
+    ]
+    target.write_text("\n".join(lines) + "\n", encoding="ascii")
+    log("pinned .venv stdlib: " + str(target))
+
+
 def install_libraries(pip_args: list[str], offline: bool, silent: bool) -> None:
     python = venv_python()
     if offline:
@@ -175,12 +202,14 @@ def install_libraries(pip_args: list[str], offline: bool, silent: bool) -> None:
         else "インターネット接続を確認して、もう一度実行してください。"
     )
     run(
-        [str(python), "-m", "pip", "install"] + pip_args + ["-U", "pip"],
+        [str(python), "-m", "pip", "install"] + pip_args + ["-U", "pip", "setuptools", "wheel"],
         "pip の更新に失敗しました。" + hint,
         silent,
     )
+    # The .venv interpreter ignores PYTHONPATH (see pin_venv_stdlib), which pip's
+    # isolated build environment relies on, so build with the .venv's setuptools.
     run(
-        [str(python), "-m", "pip", "install"] + pip_args + ["-e", ".[gui]"],
+        [str(python), "-m", "pip", "install"] + pip_args + ["--no-build-isolation", "-e", ".[gui]"],
         "ライブラリのインストールに失敗しました。" + hint,
         silent,
     )
@@ -259,6 +288,7 @@ def main() -> int:
 
         ensure_pip(python, pip_args, args.silent)
         create_venv(python, pip_args, args.silent)
+        pin_venv_stdlib(python)
         install_libraries(pip_args, offline, args.silent)
         verify(args.silent)
         install_grasshopper_plugin()
