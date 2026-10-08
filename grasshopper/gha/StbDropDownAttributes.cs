@@ -163,28 +163,48 @@ namespace StbGrasshopper
             }
 
             var menu = new ContextMenuStrip();
-            for (var index = 0; index < _owner.DropDownCount; index++)
-            {
-                var item = new ToolStripMenuItem(_owner.DropDownName(index))
-                {
-                    Checked = index == _owner.DropDownSelection,
-                    Tag = index,
-                };
-                menu.Items.Add(item);
-            }
-
-            menu.ItemClicked += (_, args) =>
-            {
-                if (args.ClickedItem.Tag is int selected)
-                {
-                    // Run after the native drop-down has closed. Modifying
-                    // Grasshopper parameters during ToolStrip dispatch can be
-                    // ignored or fail silently on some Rhino 8 builds.
-                    sender.BeginInvoke(new Action(() => _owner.SetDropDownSelection(selected)));
-                }
-            };
+            AppendChoices(menu, _owner);
             menu.Show(sender, e.ControlLocation);
             return GH_ObjectResponse.Handled;
+        }
+
+        /// <summary>
+        /// Adds one checked item per choice. Shared by the body drop-down and the
+        /// component's right-click menu, so a choice can still be made where the
+        /// drop-down cannot be opened.
+        /// </summary>
+        internal static void AppendChoices(ToolStrip menu, IStbDropDownOwner owner)
+        {
+            for (var index = 0; index < owner.DropDownCount; index++)
+            {
+                var selected = index;
+                // Per-item Click handlers, as Grasshopper's own menus use: the
+                // Windows Forms layer of Rhino for Mac does not raise
+                // ToolStrip.ItemClicked.
+                GH_DocumentObject.Menu_AppendItem(
+                    menu,
+                    owner.DropDownName(index),
+                    (_, __) => RunWhenIdle(() => owner.SetDropDownSelection(selected)),
+                    true,
+                    index == owner.DropDownSelection);
+            }
+        }
+
+        /// <summary>
+        /// Runs the action once Rhino is idle, i.e. after the menu has closed.
+        /// Rebuilding component parameters while the menu is still dispatching
+        /// its click can be ignored on some Rhino 8 builds, and Control.BeginInvoke
+        /// is not dependable on Rhino for Mac.
+        /// </summary>
+        private static void RunWhenIdle(Action action)
+        {
+            EventHandler handler = null;
+            handler = (_, __) =>
+            {
+                Rhino.RhinoApp.Idle -= handler;
+                action();
+            };
+            Rhino.RhinoApp.Idle += handler;
         }
     }
 }

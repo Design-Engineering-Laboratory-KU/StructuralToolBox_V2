@@ -248,6 +248,12 @@ namespace StbGrasshopper
             m_attributes = new StbDropDownAttributes(this, this);
         }
 
+        protected override void AppendAdditionalComponentMenuItems(System.Windows.Forms.ToolStripDropDown menu)
+        {
+            Menu_AppendSeparator(menu);
+            StbDropDownAttributes.AppendChoices(menu, this);
+        }
+
         protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
             pManager.AddTextParameter("Name", "Name", "Section name.", GH_ParamAccess.item, "SEC");
