@@ -358,6 +358,9 @@ def mdl_to_dict(mdl, relpath=None, solved=False):
             item["lzj"] = float(e.lzj) if e.lzj is not None else None
             item["PHIy"] = float(e.PHIy) if e.PHIy is not None else None
             item["PHIz"] = float(e.PHIz) if e.PHIz is not None else None
+            if e.sec is not None and e.sec.mat is not None:
+                item["EIy"] = float(e.sec.mat.E * e.sec.Iy)
+                item["EIz"] = float(e.sec.mat.E * e.sec.Iz)
             item["vx"] = [
                 float(e.pln.vx.v[0]), float(e.pln.vx.v[1]), float(e.pln.vx.v[2]),
             ]
@@ -370,7 +373,14 @@ def mdl_to_dict(mdl, relpath=None, solved=False):
         if solved and e.forces is not None and mdl.lcs != None:
             item["forces"] = {}
             item["local_wloads"] = {}
+            item["end_rots"] = {}
+            end_rots = None
+            if getattr(e, "ndisps", None) is not None and e.pln is not None:
+                from classes.solve import member_end_bending_rotations
+                end_rots = member_end_bending_rotations(e)
             for i, lc in enumerate(mdl.lcs):
+                if end_rots is not None and i < end_rots.shape[1]:
+                    item["end_rots"][str(lc)] = [float(v) for v in end_rots[:, i]]
                 f = e.forces[:, i]
                 item["forces"][str(lc)] = [float(f[j]) for j in range(f.shape[0])]
                 w = _elem_local_wloads(e, mdl, i)

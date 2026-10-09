@@ -45,42 +45,51 @@ _FORCE_SIGN_FLAT = np.array(
 #from classes.elm import Elm1D
 
 
-def _condense_plane_fixed_end_forces(f, vi, mi, vj, mj, li, lj, L, sign):
-    """Condense rigid fixed-end forces of one bending plane through end springs.
-
-    f rows vi/mi/vj/mj are shear/moment at the i and j ends (all load cases).
-    li, lj are the joint factors (0 = pin, 1 = rigid). sign is +1 when the
-    shear-rotation coupling is +6EI/L^2 (local z bending) and -1 otherwise.
-    """
-    if li >= 1.0 and lj >= 1.0:
-        return
-    ui = 1.0 - li
-    uj = 1.0 - lj
-    ai = 4.0 * ui + 6.0 * li
-    aj = 4.0 * uj + 6.0 * lj
-    den = ai * aj - 4.0 * ui * uj
-    pmi = f[mi].copy()
-    pmj = f[mj].copy()
-    f[mi] = 6.0 * li * (aj * pmi - 2.0 * uj * pmj) / den
-    f[mj] = 6.0 * lj * (ai * pmj - 2.0 * ui * pmi) / den
-    shear = 6.0 / L * (ui * (2.0 * uj + 6.0 * lj) * pmi + uj * (2.0 * ui + 6.0 * li) * pmj) / den
-    f[vi] -= sign * shear
-    f[vj] += sign * shear
-
-
 def _release_fixed_end_forces(e):
-    """Adjust member fixed-end forces (e.elds) for EJNT end springs / pins."""
-    jnt = e.jnt
-    if jnt is None or e.elds is None or jnt.Ryi is None:
+    """Adjust member fixed-end forces (e.elds) for EJNT end springs / pins.
+
+    Uses the same exact condensation as the member stiffness
+    (elm.condense_end_springs), so shear deformation is consistent. The
+    rigid-ended loads are kept in e.elds_fixed for member-end rotations.
+    """
+    if e.elds is None:
+        e.elds_fixed = None
         return
-    EIy = e.sec.mat.E * e.sec.Iy
-    EIz = e.sec.mat.E * e.sec.Iz
-    lyi = min(max(jnt.Ryi / EIy, 0.0), 1.0)
-    lyj = min(max(jnt.Ryj / EIy, 0.0), 1.0)
-    lzi = min(max(jnt.Rzi / EIz, 0.0), 1.0)
-    lzj = min(max(jnt.Rzj / EIz, 0.0), 1.0)
-    _condense_plane_fixed_end_forces(e.elds, 1, 5, 7, 11, lzi, lzj, e.len, 1.0)
-    _condense_plane_fixed_end_forces(e.elds, 2, 4, 8, 10, lyi, lyj, e.len, -1.0)
+    e.elds_fixed = e.elds.copy()
+    kyi, kyj, kzi, kzj = elm.element_end_springs(e)
+    if kzi is not None or kzj is not None:
+        rows = list(elm.PLANE_ROWS_Z)
+        Kb = elm.timoshenko_plane_stiffness(e.sec.mat.E * e.sec.Iz, e.len, e.PHIy)
+        _, fc = elm.condense_end_springs(Kb, kzi, kzj, e.elds[rows, :])
+        e.elds[rows, :] = fc
+    if kyi is not None or kyj is not None:
+        rows = list(elm.PLANE_ROWS_Y)
+        flip = elm.PLANE_Y_FLIP[:, None]
+        Kb = elm.timoshenko_plane_stiffness(e.sec.mat.E * e.sec.Iy, e.len, e.PHIz)
+        _, fc = elm.condense_end_springs(Kb, kyi, kyj, flip * e.elds[rows, :])
+        e.elds[rows, :] = flip * fc
+
+
+def member_end_bending_rotations(e):
+    """Local member-end bending rotations [rz_i, rz_j, ry_i, ry_j] x nlc.
+
+    Equal to the nodal rotations at rigid ends; at EJNT springs/pins they
+    are the rotations of the member itself (behind the spring).
+    """
+    d = np.asarray(e.tm, dtype=np.float64) @ np.asarray(e.ndisps, dtype=np.float64)
+    nlc = d.shape[1]
+    f = getattr(e, "elds_fixed", None)
+    if f is None:
+        f = np.zeros((12, nlc))
+    kyi, kyj, kzi, kzj = elm.element_end_springs(e)
+    rz = elm.member_end_rotations(
+        elm.timoshenko_plane_stiffness(e.sec.mat.E * e.sec.Iz, e.len, e.PHIy),
+        kzi, kzj, d[list(elm.PLANE_ROWS_Z), :], f[list(elm.PLANE_ROWS_Z), :nlc])
+    flip = elm.PLANE_Y_FLIP[:, None]
+    ry = elm.member_end_rotations(
+        elm.timoshenko_plane_stiffness(e.sec.mat.E * e.sec.Iy, e.len, e.PHIz),
+        kyi, kyj, flip * d[list(elm.PLANE_ROWS_Y), :], flip * f[list(elm.PLANE_ROWS_Y), :nlc])
+    return np.vstack([rz, -ry])
 
 
 def _as_dense_disps(disps):
@@ -875,14 +884,14 @@ class Solve:
                 lds = np.array(lds)
 
             # all lds are now in ECS
-            fwe[ 0] =  0.0                                                # fxi
+            fwe[ 0] =  e.len / 6.0  * (2.0 * lds[0] + 1.0 * lds[3])       # fxi
             fwe[ 1] =  e.len / 20.0 * (7.0 * lds[1] + 3.0 * lds[4])       # fyi
             fwe[ 2] =  e.len / 20.0 * (7.0 * lds[2] + 3.0 * lds[5])       # fzi
             fwe[ 3] =  0.0                                                # mxi
             fwe[ 4] = -e.len**2 / 60.0 * (3.0 * lds[2] + 2.0 * lds[5]) #+ # myi
             fwe[ 5] =  e.len**2 / 60.0 * (3.0 * lds[1] + 2.0 * lds[4])    # mzi -
 
-            fwe[ 6] =  0.0                                                # fxj
+            fwe[ 6] =  e.len / 6.0  * (1.0 * lds[0] + 2.0 * lds[3])       # fxj
             fwe[ 7] =  e.len / 20.0 * (3.0 * lds[1] + 7.0 * lds[4])       # fyj
             fwe[ 8] =  e.len / 20.0 * (3.0 * lds[2] + 7.0 * lds[5])       # fzj
             fwe[ 9] =  0.0                                                # mxj

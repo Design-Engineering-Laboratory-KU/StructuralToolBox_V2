@@ -7,6 +7,101 @@ from mat  import Mat
 from sec  import Sec
 from ejnt import EJnt
 
+# Bending-plane DOF order used below: (v_i, theta_i, v_j, theta_j) with the
+# +6EI/L^2 shear-rotation coupling (local z bending: v, rz). The local y
+# bending plane (w, ry) uses the opposite sign; flip the rotations with
+# PLANE_Y_FLIP before and after.
+PLANE_ROWS_Z = (1, 5, 7, 11)
+PLANE_ROWS_Y = (2, 4, 8, 10)
+PLANE_Y_FLIP = np.array([1.0, -1.0, 1.0, -1.0])
+
+
+def timoshenko_plane_stiffness(EI, L, phi):
+    """4x4 Timoshenko beam stiffness for one bending plane (rigid ends)."""
+    c = EI / (L ** 3 * (1.0 + phi))
+    L2 = L * L
+    return c * np.array([
+        [ 12.0,              6.0 * L, -12.0,              6.0 * L],
+        [  6.0 * L, (4.0 + phi) * L2,  -6.0 * L, (2.0 - phi) * L2],
+        [-12.0,             -6.0 * L,  12.0,             -6.0 * L],
+        [  6.0 * L, (2.0 - phi) * L2,  -6.0 * L, (4.0 + phi) * L2],
+    ])
+
+
+def _spring_system(Kb, ki, kj):
+    """Member stiffness plus end springs on node DOFs and internal member-end
+    rotations. ki/kj: rotational springs [Nm/rad], None = rigid.
+    Returns (K, internal indices, member-DOF -> system index map)."""
+    dof = [0, 1, 2, 3]
+    nint = 0
+    for end, k in ((1, ki), (3, kj)):
+        if k is not None:
+            dof[end] = 4 + nint
+            nint += 1
+    n = 4 + nint
+    K = np.zeros((n, n))
+    K[np.ix_(dof, dof)] += Kb
+    for end, k in ((1, ki), (3, kj)):
+        if k is not None:
+            m = dof[end]
+            K[end, end] += k
+            K[m, m] += k
+            K[end, m] -= k
+            K[m, end] -= k
+    return K, list(range(4, n)), dof
+
+
+def condense_end_springs(Kb, ki, kj, f=None):
+    """Static condensation of a beam plane with rotational end springs.
+
+    Kb: 4x4 plane stiffness on member-end DOFs. f: member-end equivalent
+    nodal loads (4 x nlc) of the rigid-ended member, or None.
+    Returns the 4x4 stiffness and loads on the node DOFs (exact series
+    springs, shear deformation included).
+    """
+    K, ii, dof = _spring_system(Kb, ki, kj)
+    if not ii:
+        return Kb.copy(), (None if f is None else np.array(f, dtype=np.float64))
+    ee = [0, 1, 2, 3]
+    Kii_inv = np.linalg.inv(K[np.ix_(ii, ii)])
+    Kei = K[np.ix_(ee, ii)]
+    Kc = K[np.ix_(ee, ee)] - Kei @ Kii_inv @ K[np.ix_(ii, ee)]
+    if f is None:
+        return Kc, None
+    f = np.atleast_2d(np.asarray(f, dtype=np.float64).reshape(4, -1))
+    fs = np.zeros((K.shape[0], f.shape[1]))
+    fs[dof, :] += f
+    fc = fs[ee, :] - Kei @ Kii_inv @ fs[ii, :]
+    return Kc, fc
+
+
+def member_end_rotations(Kb, ki, kj, d, f):
+    """Member-end bending rotations (theta_i, theta_j) for node DOFs d
+    (4 x nlc) and rigid-ended member loads f (4 x nlc)."""
+    d = np.atleast_2d(np.asarray(d, dtype=np.float64).reshape(4, -1))
+    K, ii, dof = _spring_system(Kb, ki, kj)
+    out = np.empty((2, d.shape[1]))
+    out[0] = d[1]
+    out[1] = d[3]
+    if not ii:
+        return out
+    ee = [0, 1, 2, 3]
+    fs = np.zeros((K.shape[0], d.shape[1]))
+    fs[dof, :] += np.atleast_2d(np.asarray(f, dtype=np.float64).reshape(4, -1))
+    th = np.linalg.solve(K[np.ix_(ii, ii)], fs[ii, :] - K[np.ix_(ii, ee)] @ d)
+    for r, end in enumerate([e for e in (1, 3) if dof[e] >= 4]):
+        out[0 if end == 1 else 1] = th[r]
+    return out
+
+
+def element_end_springs(e):
+    """(kyi, kyj, kzi, kzj) rotational end springs [Nm/rad]; None = rigid."""
+    jnt = e.jnt
+    if jnt is None:
+        return (None, None, None, None)
+    return (jnt.ryi, jnt.ryj, jnt.rzi, jnt.rzj)
+
+
 class Elm1D:
 
     def __init__(self, 
@@ -494,6 +589,21 @@ class Elm1D:
         k4a = (2.0 - PHIz) / (1.0 + PHIz) * cy * lyi * lyj / ly1 * 3.0 * L2
         ek[:, 4, 10] = k4a
         ek[:, 10, 4] = k4a
+
+        # Members with EJNT end springs: the closed-form joint-factor terms
+        # above are exact only without shear deformation (PHI -> 0), so
+        # rebuild their bending blocks by exact static condensation of a
+        # Timoshenko beam with series end springs.
+        for k, e in enumerate(elms):
+            kyi, kyj, kzi, kzj = element_end_springs(e)
+            if kzi is not None or kzj is not None:
+                Kz, _ = condense_end_springs(
+                    timoshenko_plane_stiffness(EIz[k], L[k], PHIy[k]), kzi, kzj)
+                ek[k][np.ix_(PLANE_ROWS_Z, PLANE_ROWS_Z)] = Kz
+            if kyi is not None or kyj is not None:
+                Ky, _ = condense_end_springs(
+                    timoshenko_plane_stiffness(EIy[k], L[k], PHIz[k]), kyi, kyj)
+                ek[k][np.ix_(PLANE_ROWS_Y, PLANE_ROWS_Y)] = Ky * np.outer(PLANE_Y_FLIP, PLANE_Y_FLIP)
 
         k33 = GJ / L
         ek[:, 3, 3] = k33

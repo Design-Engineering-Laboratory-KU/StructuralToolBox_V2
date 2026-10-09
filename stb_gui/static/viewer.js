@@ -3997,104 +3997,61 @@ function globalVecToLocal(v, elem) {
   return new THREE.Vector3(v.dot(vx), v.dot(vy), v.dot(vz));
 }
 
-function beamDispLocalAtT(dl, L, t) {
+// Local displacement at t (0..1) of a Timoshenko beam element.
+// dl: local end displacements [u,v,w,rx,ry,rz] x 2 where ry/rz are the
+// member-end bending rotations. The homogeneous part is exact for end
+// displacements/rotations with shear deformation (PHI); the particular part
+// adds the fixed-fixed deflection under the mean local member load.
+function beamDispLocalAtT(dl, L, t, shape) {
   const u1 = dl[0], v1 = dl[1], w1 = dl[2];
-  let ry1 = dl[4], rz1 = dl[5];
+  const ry1 = dl[4], rz1 = dl[5];
   const u2 = dl[6], v2 = dl[7], w2 = dl[8];
-  let ry2 = dl[10], rz2 = dl[11];
+  const ry2 = dl[10], rz2 = dl[11];
+  const s = shape || {};
+  const t2 = t * t, t3 = t2 * t, tt = t - t2;
 
-  const N1 = 1 - t;
-  const N2 = t;
-  const H1 = 1 - 3 * t * t + 2 * t * t * t;
-  const H2 = L * (t - 2 * t * t + t * t * t);
-  const H3 = 3 * t * t - 2 * t * t * t;
-  const H4 = L * (-t * t + t * t * t);
+  function plane(d1, th1, d2, th2, phi) {
+    const p = isFinite(phi) && phi > 0 ? phi : 0;
+    const k = 1 / (1 + p);
+    return k * (
+      (1 - 3 * t2 + 2 * t3 + p * (1 - t)) * d1 +
+      L * (t - 2 * t2 + t3 + 0.5 * p * tt) * th1 +
+      (3 * t2 - 2 * t3 + p * t) * d2 +
+      L * (-t2 + t3 - 0.5 * p * tt) * th2
+    );
+  }
+  function particular(q, EI, phi) {
+    if (!isFinite(q) || q === 0 || !isFinite(EI) || EI <= 0) return 0;
+    const p = isFinite(phi) && phi > 0 ? phi : 0;
+    return q * Math.pow(L, 4) / (24 * EI) * (tt * tt + p * tt);
+  }
 
-  const u = N1 * u1 + N2 * u2;
-  const v = H1 * v1 + H2 * rz1 + H3 * v2 + H4 * rz2;
-  const w = H1 * w1 - H2 * ry1 + H3 * w2 - H4 * ry2;
+  const wl = s.wl;
+  const qy = wl ? 0.5 * (wl[1] + wl[4]) : 0;
+  const qz = wl ? 0.5 * (wl[2] + wl[5]) : 0;
+  const u = (1 - t) * u1 + t * u2;
+  const v = plane(v1, rz1, v2, rz2, s.phiY) + particular(qy, s.EIz, s.phiY);
+  const w = plane(w1, -ry1, w2, -ry2, s.phiZ) + particular(qz, s.EIy, s.phiZ);
   return new THREE.Vector3(u, v, w);
 }
 
-function applyJointEffectiveEndRotations(dl, e, lcKey) {
-  if (!e || !isFinite(e.len) || e.len <= 1e-12) return dl;
-  const keys = ["lyi", "lyj", "lzi", "lzj", "PHIy", "PHIz"];
-  for (const k of keys) {
-    if (!isFinite(e[k])) return dl;
-  }
-
-  const L = e.len;
-  const lyi = e.lyi;
-  const lyj = e.lyj;
-  const lzi = e.lzi;
-  const lzj = e.lzj;
-  const PHIy = e.PHIy;
-  const PHIz = e.PHIz;
-  const rlyi = 1 - lyi;
-  const rlyj = 1 - lyj;
-  const rlzi = 1 - lzi;
-  const rlzj = 1 - lzj;
-
-  const denV = 2 + (2 + PHIy) * lzi + (2 + PHIy) * lzj + 4 * PHIy * lzi * lzj;
-  const denW = 2 + (2 + PHIz) * lyi + (2 + PHIz) * lyj + 4 * PHIz * lyi * lyj;
-  if (Math.abs(denV) < 1e-12 || Math.abs(denW) < 1e-12) return dl;
-
-  const Av = (1 + PHIy) / denV;
-  const Aw = (1 + PHIz) / denW;
-  const v1 = dl[1], rz1 = dl[5], v2 = dl[7], rz2 = dl[11];
-  const w1 = dl[2], ry1 = dl[4], w2 = dl[8], ry2 = dl[10];
-
-  const rz1Eff = Av * (
-    (-2 * rlzi * (1 + 2 * lzj) / L) * v1 +
-    ((4 + PHIy + (2 + 5 * PHIy) * lzj) * lzi) * rz1 +
-    (2 * rlzi * (1 + 2 * lzj) / L) * v2 +
-    (-(2 - PHIy) * rlzi * lzj) * rz2
-  );
-  const rz2Eff = Av * (
-    (-2 * rlzj * (1 + 2 * lzi) / L) * v1 +
-    (-(2 - PHIy) * rlzj * lzi) * rz1 +
-    (2 * rlzj * (1 + 2 * lzi) / L) * v2 +
-    ((4 + PHIy + (2 + 5 * PHIy) * lzi) * lzj) * rz2
-  );
-
-  const ry1Eff = Aw * (
-    (2 * rlyi * (1 + 2 * lyj) / L) * w1 +
-    ((4 + PHIz + (2 + 5 * PHIz) * lyj) * lyi) * ry1 +
-    (-2 * rlyi * (1 + 2 * lyj) / L) * w2 +
-    (-(2 - PHIz) * rlyi * lyj) * ry2
-  );
-  const ry2Eff = Aw * (
-    (2 * rlyj * (1 + 2 * lyi) / L) * w1 +
-    (-(2 - PHIz) * rlyj * lyi) * ry1 +
-    (-2 * rlyj * (1 + 2 * lyi) / L) * w2 +
-    ((4 + PHIz + (2 + 5 * PHIz) * lyi) * lyj) * ry2
-  );
-
+// Replace nodal rotations by the member-end bending rotations reported by
+// the solver (they differ behind EJNT springs/pins), and collect the data
+// for the Timoshenko interpolation.
+function elemShapeData(dl, e, lcKey) {
   const out = dl.slice();
-  out[4] = ry1Eff;
-  out[5] = rz1Eff;
-  out[10] = ry2Eff;
-  out[11] = rz2Eff;
-
-  // If end moments are effectively zero at both ends, the member should
-  // deform linearly in that bending plane (no curvature from end moments).
-  const fs = e && e.forces && e.forces[lcKey];
-  if (fs && fs.length >= 13) {
-    const MOM_TOL = 1e-6;
-    const v1 = dl[1], v2 = dl[7];
-    const w1 = dl[2], w2 = dl[8];
-    if (Math.abs(fs[5]) <= MOM_TOL && Math.abs(fs[12]) <= MOM_TOL) {
-      const rzLin = (v2 - v1) / L;
-      out[5] = rzLin;
-      out[11] = rzLin;
-    }
-    if (Math.abs(fs[4]) <= MOM_TOL && Math.abs(fs[11]) <= MOM_TOL) {
-      const ryLin = -(w2 - w1) / L;
-      out[4] = ryLin;
-      out[10] = ryLin;
-    }
+  const er = e && e.end_rots && e.end_rots[lcKey];
+  if (er && er.length >= 4) {
+    out[5] = er[0];
+    out[11] = er[1];
+    out[4] = er[2];
+    out[10] = er[3];
   }
-  return out;
+  const wl = e && e.local_wloads && e.local_wloads[lcKey];
+  return {
+    dl: out,
+    shape: { phiY: e.PHIy, phiZ: e.PHIz, EIy: e.EIy, EIz: e.EIz, wl: wl || null },
+  };
 }
 
 function elemDeformedPoints(e, n0, n1, model, lc, defFac, nDiv, component) {
@@ -4125,13 +4082,13 @@ function elemDeformedPoints(e, n0, n1, model, lc, defFac, nDiv, component) {
     t0l.x, t0l.y, t0l.z, r0l.x, r0l.y, r0l.z,
     t1l.x, t1l.y, t1l.z, r1l.x, r1l.y, r1l.z,
   ];
-  const dlEff = applyJointEffectiveEndRotations(dl, e, lcKey);
+  const sd = elemShapeData(dl, e, lcKey);
 
   const pts = [];
   const values = [];
   for (let i = 0; i <= nDiv; i++) {
     const t = i / nDiv;
-    const pl = beamDispLocalAtT(dlEff, e.len, t);
+    const pl = beamDispLocalAtT(sd.dl, e.len, t, sd.shape);
     const pg = localVecToGlobal(pl, e);
     const pgDisplay = displacementVectorForComponent(pg, component);
     const pBase = elemPointAlong(p0u, p1u, t);
@@ -4166,14 +4123,14 @@ function maxDispPointInfo(model, lc, defFac, nm, component) {
       t0l.x, t0l.y, t0l.z, r0l.x, r0l.y, r0l.z,
       t1l.x, t1l.y, t1l.z, r1l.x, r1l.y, r1l.z,
     ];
-    const dlEff = applyJointEffectiveEndRotations(dl, e, String(lc));
+    const sd = elemShapeData(dl, e, String(lc));
 
     const p0u = nodePosition(n0, model, lc, defFac, false);
     const p1u = nodePosition(n1, model, lc, defFac, false);
 
     for (let i = 1; i < nDiv; i++) {
       const t = i / nDiv;
-      const pl = beamDispLocalAtT(dlEff, e.len, t);
+      const pl = beamDispLocalAtT(sd.dl, e.len, t, sd.shape);
       const pg = localVecToGlobal(pl, e);
       const value = displacementComponentValue(pg, component);
       const absValue = Math.abs(value);

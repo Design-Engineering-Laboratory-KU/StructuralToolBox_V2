@@ -40,6 +40,15 @@ def _rows(txt, tag):
     return rows
 
 
+def _efrc(txt):
+    out = []
+    for line in txt.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if parts[0] == "EFRC":
+            out.append([float(v) for v in parts[3:]])
+    return out
+
+
 def _solve(lines):
     _, txt = run_from_lines(HEAD + lines)
     return _rows(txt, "REAC"), _rows(txt, "NDSP")
@@ -50,19 +59,51 @@ class TestEjntRelease(unittest.TestCase):
     W = 10.0
     L = 6.0
 
+    # Propped cantilever (fixed i, pinned j) under a uniform load, Timoshenko:
+    #   R_i = wL (5 + PHI) / (2 (4 + PHI)),  M_i = wL^2 / (2 (4 + PHI))
+    # which reduces to 5wL/8 and wL^2/8 without shear deformation.
+    def _propped(self, phi):
+        wl = self.W * self.L
+        r_i = wl * (5.0 + phi) / (2.0 * (4.0 + phi))
+        return r_i, wl - r_i, self.W * self.L ** 2 / (2.0 * (4.0 + phi))
+
     def test_pinned_j_end_vertical_udl_matches_propped_cantilever(self):
-        reac, _ = _solve(BEAM + ["EJNT,1,,,0,0", "ELOD,1,0,1,0,0,-10,0,0,-10"])
-        self.assertAlmostEqual(reac[(0, 1)][2], 5 * self.W * self.L / 8, places=6)
-        self.assertAlmostEqual(reac[(0, 2)][2], 3 * self.W * self.L / 8, places=6)
-        self.assertAlmostEqual(abs(reac[(0, 1)][4]), self.W * self.L ** 2 / 8, places=6)
+        mdl, txt = run_from_lines(HEAD + BEAM + ["EJNT,1,,,0,0", "ELOD,1,0,1,0,0,-10,0,0,-10"])
+        reac = _rows(txt, "REAC")
+        r_i, r_j, m_i = self._propped(mdl.elms[0].PHIz)
+        self.assertAlmostEqual(reac[(0, 1)][2], r_i, places=2)
+        self.assertAlmostEqual(reac[(0, 2)][2], r_j, places=2)
+        self.assertAlmostEqual(abs(reac[(0, 1)][4]), m_i, places=2)
         self.assertAlmostEqual(reac[(0, 2)][4], 0.0, places=6)
 
     def test_pinned_j_end_horizontal_udl_matches_propped_cantilever(self):
-        reac, _ = _solve(BEAM + ["EJNT,1,,,0,0", "ELOD,1,0,1,0,-10,0,0,-10,0"])
-        self.assertAlmostEqual(reac[(0, 1)][1], 5 * self.W * self.L / 8, places=6)
-        self.assertAlmostEqual(reac[(0, 2)][1], 3 * self.W * self.L / 8, places=6)
-        self.assertAlmostEqual(abs(reac[(0, 1)][5]), self.W * self.L ** 2 / 8, places=6)
+        mdl, txt = run_from_lines(HEAD + BEAM + ["EJNT,1,,,0,0", "ELOD,1,0,1,0,-10,0,0,-10,0"])
+        reac = _rows(txt, "REAC")
+        r_i, r_j, m_i = self._propped(mdl.elms[0].PHIy)
+        self.assertAlmostEqual(reac[(0, 1)][1], r_i, places=2)
+        self.assertAlmostEqual(reac[(0, 2)][1], r_j, places=2)
+        self.assertAlmostEqual(abs(reac[(0, 1)][5]), m_i, places=2)
         self.assertAlmostEqual(reac[(0, 2)][5], 0.0, places=6)
+
+    def test_pins_on_subdivided_member_match_single_element(self):
+        # A simply supported deep timber beam split into short elements, with
+        # the pins on the end elements only: shear deformation (large PHI on
+        # short elements) must not change the result.
+        def beam(n):
+            lines = ["MATE,2,GL,12000,800,0,0,33", "SECT,2,B,2,0,120,330"]
+            lines += ["NODE,%d,%.6f,0,0" % (i + 1, 5.0 * i / n) for i in range(n + 1)]
+            lines += ["ELEM,%d,%d,%d,2,0" % (i + 1, i + 1, i + 2) for i in range(n)]
+            if n == 1:
+                lines += ["EJNT,1,10,10,10,10"]
+            else:
+                lines += ["EJNT,1,10,10,,", "EJNT,%d,,,10,10" % n]
+            lines += ["CONS,1,1,1,1,1,0,0", "CONS,%d,0,1,1,0,0,0" % (n + 1)]
+            lines += ["ELOD,%d,0,1,0,0,-2,0,0,-2" % (i + 1) for i in range(n)]
+            _, txt = run_from_lines(lines)
+            mmax = max(max(abs(v[4]), abs(v[10]), abs(v[12])) for v in _efrc(txt))
+            return mmax
+        self.assertAlmostEqual(beam(1), 6.25, places=2)
+        self.assertAlmostEqual(beam(10), 6.25, places=2)
 
     def test_pinned_both_ends_carries_no_end_moment(self):
         reac, _ = _solve(BEAM + ["EJNT,1,0,0,0,0", "ELOD,1,0,1,0,0,-10,0,0,-10"])
