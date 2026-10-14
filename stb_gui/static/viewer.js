@@ -8510,11 +8510,14 @@ function buildForceDiagrams(model) {
         { val: nj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
       );
     } else if (forceId === 2) {
+      // Positive (clockwise) shear goes on the +local-axis side, i.e. above a
+      // beam as in Japanese practice; vertical members report flipped signs.
       const vy = new THREE.Vector3().fromArray(e.vy);
+      if (e.is_vxz) vy.multiplyScalar(-1);
       const wyi = lds[1], wyj = lds[4];
       const qyi = f[1], qyj = f[7];
       const wXc = wyi + (wyj - wyi) * 0.5;
-      const qXc = -qyi - 0.5 * (wyi + wXc) * 0.5 * e.len;
+      const qXc = qyi + 0.5 * (wyi + wXc) * 0.5 * e.len;
       const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vy, dispFac * qXc);
 
       for (let i = 0; i <= divNum; i++) {
@@ -8522,7 +8525,7 @@ function buildForceDiagrams(model) {
         const x = t * e.len;
         const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
         const wX = wyi + (wyj - wyi) * t;
-        const qX = -qyi - 0.5 * (wyi + wX) * x;
+        const qX = qyi + 0.5 * (wyi + wX) * x;
         const ptF = pt.clone().addScaledVector(vy, dispFac * qX);
         stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
         splinePts.push(ptF);
@@ -8535,10 +8538,11 @@ function buildForceDiagrams(model) {
       );
     } else if (forceId === 3) {
       const vz = new THREE.Vector3().fromArray(e.vz);
+      if (e.is_vxz) vz.multiplyScalar(-1);
       const wzi = lds[2], wzj = lds[5];
       const qzi = f[2], qzj = f[8];
       const wXc = wzi + (wzj - wzi) * 0.5;
-      const qXc = -qzi - 0.5 * (wzi + wXc) * 0.5 * e.len;
+      const qXc = qzi + 0.5 * (wzi + wXc) * 0.5 * e.len;
       const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vz, dispFac * qXc);
 
       for (let i = 0; i <= divNum; i++) {
@@ -8546,7 +8550,7 @@ function buildForceDiagrams(model) {
         const x = t * e.len;
         const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
         const wX = wzi + (wzj - wzi) * t;
-        const qX = -qzi - 0.5 * (wzi + wX) * x;
+        const qX = qzi + 0.5 * (wzi + wX) * x;
         const ptF = pt.clone().addScaledVector(vz, dispFac * qX);
         stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
         splinePts.push(ptF);

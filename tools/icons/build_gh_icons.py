@@ -41,6 +41,7 @@ COPIES = {
     "Reactions": "icons_C_Reaction",
     "DeformedShape": "icons_C_Def",
     "Stress": "icons_C_Sol_Util",
+    "ViewSection": "icons_I_DrawCS",
     "LoadContainer": "icons_P_Load_P",
     "MaterialContainer": "icons_P_Mat",
     "SectionContainer": "icons_P_Sec",

@@ -14,8 +14,11 @@ namespace StbGrasshopper
 {
     public sealed class StbForceDiagramComponent : GH_Component
     {
+        private static readonly Color MemberColor = Color.Black;
+
         private readonly List<DiagramSegment> _segments = new List<DiagramSegment>();
         private readonly List<GuideLine> _constructionLines = new List<GuideLine>();
+        private readonly List<Line> _memberLines = new List<Line>();
         private readonly List<ValueLabel> _valueLabels = new List<ValueLabel>();
         private BoundingBox _clippingBox = BoundingBox.Empty;
         private double _legendMaximum;
@@ -77,6 +80,7 @@ namespace StbGrasshopper
         {
             _segments.Clear();
             _constructionLines.Clear();
+            _memberLines.Clear();
             _valueLabels.Clear();
             _clippingBox = BoundingBox.Empty;
             _legendMaximum = 0.0;
@@ -140,6 +144,8 @@ namespace StbGrasshopper
                     continue;
                 }
 
+                _memberLines.Add(memberLine);
+                ExtendClippingBox(memberLine.BoundingBox);
                 StbMemberAxes.Compute(memberLine, element.Beta, out var axis, out var localY, out var localZ);
                 var diagramDirection = DiagramDirection(
                     componentInfo.Label,
@@ -184,16 +190,13 @@ namespace StbGrasshopper
                         InterpolateForce(valueI, valueCenter, valueJ, t1)));
                     ExtendClippingBox(line.BoundingBox);
 
-                    var baseline = new Line(
-                        start + (end - start) * t0,
-                        start + (end - start) * t1);
-                    _constructionLines.Add(new GuideLine(baseline, centerValue));
-                    _constructionLines.Add(new GuideLine(new Line(baseline.From, line.From), value));
+                    var baseFrom = start + (end - start) * t0;
+                    var baseTo = start + (end - start) * t1;
+                    _constructionLines.Add(new GuideLine(new Line(baseFrom, line.From), value));
                     if (i == divisions - 1)
                     {
-                        _constructionLines.Add(new GuideLine(new Line(baseline.To, line.To), centerValue));
+                        _constructionLines.Add(new GuideLine(new Line(baseTo, line.To), centerValue));
                     }
-                    ExtendClippingBox(baseline.BoundingBox);
                 }
             }
 
@@ -427,6 +430,8 @@ namespace StbGrasshopper
 
         public override void DrawViewportWires(IGH_PreviewArgs args)
         {
+            args.Display.DrawLines(_memberLines, MemberColor, 2);
+
             foreach (var guide in _constructionLines)
             {
                 args.Display.DrawLine(
@@ -499,18 +504,20 @@ namespace StbGrasshopper
 
         /// <summary>
         /// Offset direction for a positive value, matching the browser GUI
-        /// (stb_gui/static/viewer.js buildForceDiagrams). The solver reports
-        /// vertical members with flipped moment signs, so their My and Mz
-        /// directions flip to keep moments on the tension side.
+        /// (stb_gui/static/viewer.js buildForceDiagrams). Positive (clockwise)
+        /// shear goes on the +local-axis side, i.e. above a beam as in Japanese
+        /// practice. The solver reports vertical members with flipped shear and
+        /// moment signs, so their directions flip to keep moments on the
+        /// tension side and shear consistent with them.
         /// </summary>
         private static Vector3d DiagramDirection(string label, Vector3d axis, Vector3d localY, Vector3d localZ, bool vertical)
         {
             switch (label)
             {
                 case "Vy":
-                    return localY;
+                    return vertical ? -localY : localY;
                 case "Vz":
-                    return localZ;
+                    return vertical ? -localZ : localZ;
                 case "My":
                     return vertical ? localZ : -localZ;
                 case "Mz":

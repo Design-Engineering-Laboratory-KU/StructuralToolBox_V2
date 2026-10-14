@@ -22,13 +22,13 @@ groups appear in workflow order. Items after `/` sit on the lower row of the gro
 | `06.Assemble` | STB Assemble Model / STb Assembly from file, STB DAT Nodes, STB DAT Beams |
 | `07.Analyze` | STb Analyze / STb Analyze from file |
 | `08.Post` | Displacements, Reactions, Forces / Deformed Shape, Force Diagram, Stress |
-| `99.Info` | STB Load Cases, View Support Condition, View Load |
+| `99.Info` | STB Load Cases, View Support Condition, View Load, View Section |
 
 ## Icons
 
 `Resources/Icons-original` holds the hand-drawn 2021 StructuralToolBox icon set
 (black outline, one light blue accent `#87D3DF`, transparent background for
-components and a dark hexagon for parameter containers). Eighteen of those files
+components and a dark hexagon for parameter containers). Nineteen of those files
 are reused verbatim; the remaining icons are drawn in the same palette and stroke
 weight by `tools/icons/build_gh_icons.py`. Components that read a `.dat` file
 carry a page badge over the glyph of the component they mirror.
@@ -119,6 +119,13 @@ python tools/icons/build_gh_icons.py
   panel with pressure arrows), and gravity loads (one symbolic arrow beside the model).
   `LC` = -1 shows every load case; a combination LC shows its load cases multiplied by
   their factors. Each load kind is scaled separately because their units differ.
+- `View Section`: input typed `STb Model` and/or `Element` list, `Segments`, `Edges` → output
+  one closed mesh per member and its section name. Each member is the section profile
+  (dimensions in mm, B along local y and H along local z with the element `Beta`) swept
+  from the start node to the end node; overlaps at joints are left as they are. Meshes are
+  kept coarse for speed: flat-sided sections use only their corners, and circular sections
+  use `Segments` sides (default 12). The preview colours each section differently. Hollow
+  sections whose walls leave no hole are drawn solid, with a remark.
 - `STB Deformed Shape`: displays the deformed model with a scale slider and legend
 
 The current solver does not include the member-axis component of an `ELOD` in
