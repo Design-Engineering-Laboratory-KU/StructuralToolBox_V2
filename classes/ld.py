@@ -97,7 +97,136 @@ class PLd:
 
         return lns
     
+# ----------------------------------------------------------------------
+# Member line-load segments (ELOD with T0/T1).
+#
+# A segment is a linear load over x in [t0*L, t1*L] of a member of length L,
+# given by its 6 local (ECS) intensities (wxi, wyi, wzi, wxj, wyj, wzj) [N/m]
+# at t0 and t1. Helpers below are pure functions of (L, t0, t1, lds).
+# ----------------------------------------------------------------------
+
+# 3-point Gauss-Legendre: exact up to degree 5 (linear load x cubic shape fn)
+_GAUSS3_X = np.array([-math.sqrt(0.6), 0.0, math.sqrt(0.6)])
+_GAUSS3_W = np.array([5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0])
+
+
+def _bending_shapes(L, x, phi):
+    """Deflection / rotation shape functions of the exact Timoshenko beam
+    (interdependent interpolation, still cubic); phi = 0 gives the cubic
+    Hermite functions. n2, n4 keep the sign mapping of the fwe formulas."""
+
+    xi = x / L
+    d = 1.0 + phi
+    n1 = (1.0 - 3.0 * xi ** 2 + 2.0 * xi ** 3 + phi * (1.0 - xi)) / d
+    n2 = L * (xi - 2.0 * xi ** 2 + xi ** 3 + 0.5 * phi * (xi - xi ** 2)) / d
+    n3 = (3.0 * xi ** 2 - 2.0 * xi ** 3 + phi * xi) / d
+    n4 = L * (-xi ** 2 + xi ** 3 - 0.5 * phi * (xi - xi ** 2)) / d
+    return n1, n2, n3, n4
+
+
+def segment_fixed_end_forces(L, t0, t1, lds, phi_y=0.0, phi_z=0.0):
+    """Consistent fixed-end forces (ECS) of a linear load on x in [t0*L, t1*L].
+
+    Returns 12 values with the index order and signs of the full-length
+    formulas in Solve.CreateLoadMx (fxi, fyi, fzi, mxi, myi, mzi, fxj, ...).
+    Linear shape functions for axial; for bending the deflection fields of the
+    exact Timoshenko beam, so the result is the exact (Betti) fixed-end force
+    of the shear-deformable member: phi_y = 12 E Iz / (G Asy L^2) for wy / rz,
+    phi_z = 12 E Iy / (G Asz L^2) for wz / ry. Defaults (0) give Euler-Bernoulli.
+    """
+
+    lds = np.asarray(lds, dtype=np.float64)
+    a = t0 * L
+    b = t1 * L
+    seg = b - a
+
+    x = 0.5 * (a + b) + 0.5 * seg * _GAUSS3_X       # Gauss points [m]
+    wt = 0.5 * seg * _GAUSS3_W                      # Gauss weights [m]
+    u = (x - a) / seg                               # position within the segment
+    w = lds[None, 0:3] * (1.0 - u)[:, None] + lds[None, 3:6] * u[:, None]  # (3 pts, xyz)
+
+    xi = x / L
+    n_ai = 1.0 - xi                                 # axial i
+    n_aj = xi                                       # axial j
+    y1, y2, y3, y4 = _bending_shapes(L, x, phi_y)   # local-y plane (wy, rz)
+    z1, z2, z3, z4 = _bending_shapes(L, x, phi_z)   # local-z plane (wz, ry)
+
+    fwe = np.zeros(12, dtype=np.float64)
+    fwe[0] = np.sum(wt * n_ai * w[:, 0])            # fxi
+    fwe[1] = np.sum(wt * y1 * w[:, 1])              # fyi
+    fwe[2] = np.sum(wt * z1 * w[:, 2])              # fzi
+    fwe[4] = -np.sum(wt * z2 * w[:, 2])             # myi
+    fwe[5] = np.sum(wt * y2 * w[:, 1])              # mzi
+    fwe[6] = np.sum(wt * n_aj * w[:, 0])            # fxj
+    fwe[7] = np.sum(wt * y3 * w[:, 1])              # fyj
+    fwe[8] = np.sum(wt * z3 * w[:, 2])              # fzj
+    fwe[10] = -np.sum(wt * z4 * w[:, 2])            # myj
+    fwe[11] = np.sum(wt * y4 * w[:, 1])             # mzj
+    return fwe
+
+def segment_linear_equivalent(L, t0, t1, lds):
+    """Full-length linear load (6 values) with the same resultant and the same
+    first moment about the i end as the segment, per component."""
+
+    lds = np.asarray(lds, dtype=np.float64)
+    a = t0 * L
+    b = t1 * L
+    seg = b - a
+    wa = lds[0:3]
+    wb = lds[3:6]
+
+    res = seg * (wa + wb) / 2.0
+    mom = wa * (b * b - a * a) / 2.0 + (wb - wa) * (seg * seg / 3.0 + a * seg / 2.0)
+
+    wj = 6.0 * mom / (L * L) - 2.0 * res / L
+    wi = 4.0 * res / L - 6.0 * mom / (L * L)
+    return np.concatenate([wi, wj])
+
+
+def segment_moment_integral(L, t0, t1, lds, x):
+    """int_0^x (x - xi) w(xi) dxi per component (3 values) for the segment."""
+
+    lds = np.asarray(lds, dtype=np.float64)
+    a = t0 * L
+    b = t1 * L
+    u = min(b, x)
+    if u <= a:
+        return np.zeros(3, dtype=np.float64)
+
+    q = (lds[3:6] - lds[0:3]) / (b - a)     # slope of w(xi) = p + q xi
+    p = lds[0:3] - q * a
+    return (p * (x * (u - a) - (u * u - a * a) / 2.0)
+            + q * (x * (u * u - a * a) / 2.0 - (u ** 3 - a ** 3) / 3.0))
+
+
+def diagram_wsegs(e, clc, scale=1e-3):
+    """Load segments of member `e` for computational load case `clc` in the
+    diagram convention: [[t0, t1, wxi, wyi, wzi, wxj, wyj, wzj], ...].
+    Loads are N/m times `scale` (default 1e-3 -> kN/m; 1.0 -> N/m).
+
+    wy, wz are multiplied by s = -1 for bottom-to-top vertical members (the
+    members whose EFRC signs are flipped), s = +1 otherwise. Zero segments are
+    skipped. e.wsegs holds the raw ECS segments in N/m (set by the solver).
+    """
+
+    segs = (getattr(e, "wsegs", None) or {}).get(clc, [])
+    s = -1.0 if (bool(e.isVxZ) and e.pln.vx.v[2] > 0) else 1.0
+    rows = []
+    for seg in segs:
+        w = seg[2:8]
+        if max(abs(v) for v in w) < 1e-9:
+            continue
+        rows.append([
+            float(seg[0]), float(seg[1]),
+            0.0 + w[0] * scale, 0.0 + s * w[1] * scale, 0.0 + s * w[2] * scale,
+            0.0 + w[3] * scale, 0.0 + s * w[4] * scale, 0.0 + s * w[5] * scale,
+        ])
+    return rows
+
+
 class ELd:
+
+    T_TOL = 1e-12 # tolerance for treating (T0, T1) as the full member length
 
     def __init__(self, 
                  _eid: int, 
@@ -109,12 +238,25 @@ class ELd:
                  _wxj: float, 
                  _wyj: float, 
                  _wzj: float,
-                 _combi=False):
+                 _combi=False,
+                 _t0: float = 0.0,
+                 _t1: float = 1.0):
 
         self.eid =  _eid
         self.lc  =  _lc
         self.isGlobal = _isG
         self.lds = [_wxi, _wyi, _wzi, _wxj, _wyj, _wzj] # can be in GCS or ECS
+        # load range along the member, t = 0 at the i node, t = 1 at the j node;
+        # wi acts at t0, wj at t1, linear in between, zero outside [t0, t1]
+        _t0 = float(_t0)
+        _t1 = float(_t1)
+        if not (0.0 <= _t0 < _t1 <= 1.0 and _t1 - _t0 > 1e-9):
+            raise ValueError(
+                "ELOD on ELEM {0}: T0, T1 must satisfy 0 <= T0 < T1 <= 1 (got T0={1}, T1={2})".format(
+                    _eid, _t0, _t1))
+        # snap values within the writer tolerance to the exact full-length range
+        self.t0 = 0.0 if abs(_t0) <= ELd.T_TOL else _t0
+        self.t1 = 1.0 if abs(1.0 - _t1) <= ELd.T_TOL else _t1
 
         self.len = math.sqrt(max([abs(_wxi), abs(_wxj)])**2 + max([abs(_wyi), abs(_wyj)])**2 + max([abs(_wzi), abs(_wzj)])**2)
 
@@ -140,9 +282,17 @@ class ELd:
         for l in self.lds:
             props.append("{0: >6.2f}".format(l * 1e-3)) # [N] -> [kN], [Nm] -> [kNm]
 
+        if self.is_partial:
+            props.append("{0: >6}".format("{0:.12g}".format(self.t0)))
+            props.append("{0: >6}".format("{0:.12g}".format(self.t1)))
+
         lns = ', '.join(props) + "\n"
 
         return lns
+
+    @property
+    def is_partial(self):
+        return self.t0 > ELd.T_TOL or self.t1 < 1.0 - ELd.T_TOL
 
 class ALd:
     def __init__(self, _lc, _px, _py, _pz, _e1, _e2, _e3, _e4, _combi=False):

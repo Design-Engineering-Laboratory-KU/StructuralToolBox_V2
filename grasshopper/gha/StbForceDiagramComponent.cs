@@ -128,6 +128,7 @@ namespace StbGrasshopper
             }
 
             var rawSegments = new List<RawDiagramSegment>();
+            var hasElementLoadSegments = results.ElementLoadSegments.Count > 0;
             foreach (var force in results.ElementForces)
             {
                 if (!StbLoadCaseFilter.Matches(loadCase, force.LoadCase)
@@ -160,42 +161,93 @@ namespace StbGrasshopper
                 {
                     continue;
                 }
-                _legendMaximum = Math.Max(_legendMaximum, Math.Max(Math.Abs(valueI), Math.Max(Math.Abs(valueCenter), Math.Abs(valueJ))));
-
-                var points = new List<Point3d>();
-                for (var i = 0; i <= divisions; i++)
+                if (hasElementLoadSegments)
                 {
-                    var t = (double)i / divisions;
-                    var basePoint = start + (end - start) * t;
-                    var value = InterpolateForce(valueI, valueCenter, valueJ, t);
-                    points.Add(basePoint + diagramDirection * (value * _diagramScale));
-                }
-
-                for (var i = 0; i < divisions; i++)
-                {
-                    var t0 = (double)i / divisions;
-                    var t1 = (double)(i + 1) / divisions;
-                    var value = InterpolateForce(valueI, valueCenter, valueJ, t0);
-                    var centerValue = InterpolateForce(valueI, valueCenter, valueJ, 0.5 * (t0 + t1));
-                    var line = new Line(points[i], points[i + 1]);
-                    rawSegments.Add(new RawDiagramSegment(
-                        line,
-                        value,
-                        centerValue,
-                        force.ElementId,
-                        textNormal,
-                        points[i] + diagramDirection * LabelOffset(value),
-                        points[i + 1] + diagramDirection * LabelOffset(InterpolateForce(valueI, valueCenter, valueJ, t1)),
-                        i == divisions - 1,
-                        InterpolateForce(valueI, valueCenter, valueJ, t1)));
-                    ExtendClippingBox(line.BoundingBox);
-
-                    var baseFrom = start + (end - start) * t0;
-                    var baseTo = start + (end - start) * t1;
-                    _constructionLines.Add(new GuideLine(new Line(baseFrom, line.From), value));
-                    if (i == divisions - 1)
+                    var loadSegments = results.GetElementLoadSegments(force.LoadCase, force.ElementId);
+                    var stations = StbSectionForces.Stations(divisions, loadSegments);
+                    var values = new List<double>();
+                    var points = new List<Point3d>();
+                    for (var i = 0; i < stations.Count; i++)
                     {
-                        _constructionLines.Add(new GuideLine(new Line(baseTo, line.To), centerValue));
+                        var t = stations[i];
+                        var value = ExactForceValue(
+                            StbSectionForces.Evaluate(force, memberLine.Length, loadSegments, t),
+                            componentInfo.Label);
+                        values.Add(value);
+                        points.Add(start + (end - start) * t + diagramDirection * (value * _diagramScale));
+                        _legendMaximum = Math.Max(_legendMaximum, Math.Abs(value));
+                    }
+
+                    for (var i = 0; i < stations.Count - 1; i++)
+                    {
+                        var t0 = stations[i];
+                        var t1 = stations[i + 1];
+                        var value = values[i];
+                        var endValue = values[i + 1];
+                        var centerValue = ExactForceValue(
+                            StbSectionForces.Evaluate(force, memberLine.Length, loadSegments, 0.5 * (t0 + t1)),
+                            componentInfo.Label);
+                        var line = new Line(points[i], points[i + 1]);
+                        rawSegments.Add(new RawDiagramSegment(
+                            line,
+                            value,
+                            centerValue,
+                            force.ElementId,
+                            textNormal,
+                            points[i] + diagramDirection * LabelOffset(value),
+                            points[i + 1] + diagramDirection * LabelOffset(endValue),
+                            i == stations.Count - 2,
+                            endValue));
+                        ExtendClippingBox(line.BoundingBox);
+
+                        var baseFrom = start + (end - start) * t0;
+                        var baseTo = start + (end - start) * t1;
+                        _constructionLines.Add(new GuideLine(new Line(baseFrom, line.From), value));
+                        if (i == stations.Count - 2)
+                        {
+                            _constructionLines.Add(new GuideLine(new Line(baseTo, line.To), centerValue));
+                        }
+                    }
+                }
+                else
+                {
+                    _legendMaximum = Math.Max(_legendMaximum, Math.Max(Math.Abs(valueI), Math.Max(Math.Abs(valueCenter), Math.Abs(valueJ))));
+
+                    var points = new List<Point3d>();
+                    for (var i = 0; i <= divisions; i++)
+                    {
+                        var t = (double)i / divisions;
+                        var basePoint = start + (end - start) * t;
+                        var value = InterpolateForce(valueI, valueCenter, valueJ, t);
+                        points.Add(basePoint + diagramDirection * (value * _diagramScale));
+                    }
+
+                    for (var i = 0; i < divisions; i++)
+                    {
+                        var t0 = (double)i / divisions;
+                        var t1 = (double)(i + 1) / divisions;
+                        var value = InterpolateForce(valueI, valueCenter, valueJ, t0);
+                        var centerValue = InterpolateForce(valueI, valueCenter, valueJ, 0.5 * (t0 + t1));
+                        var line = new Line(points[i], points[i + 1]);
+                        rawSegments.Add(new RawDiagramSegment(
+                            line,
+                            value,
+                            centerValue,
+                            force.ElementId,
+                            textNormal,
+                            points[i] + diagramDirection * LabelOffset(value),
+                            points[i + 1] + diagramDirection * LabelOffset(InterpolateForce(valueI, valueCenter, valueJ, t1)),
+                            i == divisions - 1,
+                            InterpolateForce(valueI, valueCenter, valueJ, t1)));
+                        ExtendClippingBox(line.BoundingBox);
+
+                        var baseFrom = start + (end - start) * t0;
+                        var baseTo = start + (end - start) * t1;
+                        _constructionLines.Add(new GuideLine(new Line(baseFrom, line.From), value));
+                        if (i == divisions - 1)
+                        {
+                            _constructionLines.Add(new GuideLine(new Line(baseTo, line.To), centerValue));
+                        }
                     }
                 }
             }
@@ -232,7 +284,6 @@ namespace StbGrasshopper
                 outputValues.Add(segment.Value);
                 outputElementIds.Add(segment.ElementId);
             }
-
             da.SetDataList(0, outputLines);
             da.SetDataList(1, outputValues);
             da.SetDataList(2, outputElementIds);
@@ -559,6 +610,19 @@ namespace StbGrasshopper
             var lc = 4.0 * t * (1.0 - t);
             var l1 = 2.0 * t * (t - 0.5);
             return valueI * l0 + valueCenter * lc + valueJ * l1;
+        }
+
+        private static double ExactForceValue(SectionForceValues values, string label)
+        {
+            switch (label)
+            {
+                case "Nx": return values.N;
+                case "Vy": return values.Qy;
+                case "Vz": return values.Qz;
+                case "Mx": return values.Mx;
+                case "My": return values.My;
+                default: return values.Mz;
+            }
         }
 
         private static bool IsFinite(double value)

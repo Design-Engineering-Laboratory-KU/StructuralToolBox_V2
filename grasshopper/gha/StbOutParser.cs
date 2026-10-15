@@ -102,6 +102,28 @@ namespace StbGrasshopper
                         Mzc = ParseDouble(parts[16])
                     });
                 }
+                else if (parts[0] == "EWLD" && parts.Length >= 11)
+                {
+                    var lc = ParseInt(parts[1]);
+                    if (loadCase.HasValue && lc != loadCase.Value)
+                    {
+                        continue;
+                    }
+
+                    results.ElementLoadSegments.Add(new ElementLoadSegment
+                    {
+                        LoadCase = lc,
+                        ElementId = ParseInt(parts[2]),
+                        T0 = ParseDouble(parts[3]),
+                        T1 = ParseDouble(parts[4]),
+                        WXi = ParseDouble(parts[5]),
+                        WYi = ParseDouble(parts[6]),
+                        WZi = ParseDouble(parts[7]),
+                        WXj = ParseDouble(parts[8]),
+                        WYj = ParseDouble(parts[9]),
+                        WZj = ParseDouble(parts[10])
+                    });
+                }
             }
 
             return results;

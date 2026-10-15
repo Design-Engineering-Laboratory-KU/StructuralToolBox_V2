@@ -515,13 +515,16 @@ namespace StbGrasshopper
         }
     }
 
-    public sealed class StbLineLoadComponent : GH_Component
+    public sealed class StbLineLoadComponent : GH_Component, IStbDropDownOwner
     {
+        private const string LineLoadShapeKey = "LineLoadShape";
+        private int _lineLoadShape;
+
         public StbLineLoadComponent()
             : base(
                 "STb Load",
                 "STb LLoad",
-                "Create an STb distributed load on a frame element.",
+                "Create an STb distributed load on a frame element. Choose Linear, Partial, Triangle, or Trapezoid from the drop-down.",
                 StbCategories.Tab,
                 StbCategories.Load)
         {
@@ -530,6 +533,22 @@ namespace StbGrasshopper
         public override Guid ComponentGuid => new Guid("164ce563-ef3c-43f3-887a-e5839829f06a");
 
         protected override Bitmap Icon => StbIcons.LineLoad;
+
+        int IStbDropDownOwner.DropDownCount => StbLineLoadShapes.ModeCount;
+        int IStbDropDownOwner.DropDownSelection => _lineLoadShape;
+        string IStbDropDownOwner.DropDownName(int index) => StbLineLoadShapes.ModeName(index);
+        void IStbDropDownOwner.SetDropDownSelection(int index) => SetLineLoadShape(index);
+
+        public override void CreateAttributes()
+        {
+            m_attributes = new StbDropDownAttributes(this, this);
+        }
+
+        protected override void AppendAdditionalComponentMenuItems(System.Windows.Forms.ToolStripDropDown menu)
+        {
+            Menu_AppendSeparator(menu);
+            StbDropDownAttributes.AppendChoices(menu, this);
+        }
 
         protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
@@ -546,18 +565,7 @@ namespace StbGrasshopper
                 "True: load vectors use global coordinates. False: element local coordinates.",
                 GH_ParamAccess.item,
                 true);
-            pManager.AddVectorParameter(
-                "Load i",
-                "Wi",
-                "Distributed load at the element i-end in kN/m.",
-                GH_ParamAccess.item,
-                Vector3d.Zero);
-            pManager.AddVectorParameter(
-                "Load j",
-                "Wj",
-                "Distributed load at the element j-end in kN/m.",
-                GH_ParamAccess.item,
-                Vector3d.Zero);
+            AddShapeParameters(pManager, _lineLoadShape);
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -566,8 +574,8 @@ namespace StbGrasshopper
                 new StbLoadParameter(),
                 "STb Load",
                 "Ld",
-                "STB line load object.",
-                GH_ParamAccess.item);
+                "STB line load segment(s); triangle and trapezoid modes emit multiple records.",
+                GH_ParamAccess.list);
         }
 
         protected override void SolveInstance(IGH_DataAccess da)
@@ -575,8 +583,6 @@ namespace StbGrasshopper
             StbElementGoo elementGoo = null;
             int loadCase = 0;
             bool isGlobal = true;
-            var loadAtI = Vector3d.Zero;
-            var loadAtJ = Vector3d.Zero;
 
             if (!da.GetData(0, ref elementGoo) || elementGoo?.Value == null)
             {
@@ -585,35 +591,186 @@ namespace StbGrasshopper
 
             da.GetData(1, ref loadCase);
             da.GetData(2, ref isGlobal);
-            da.GetData(3, ref loadAtI);
-            da.GetData(4, ref loadAtJ);
+
+            var numbers = new List<double>();
+            var vectors = new List<Vector3d>();
+            for (var i = 3; i < Params.Input.Count; i++)
+            {
+                if (Params.Input[i] is Param_Number)
+                {
+                    double value = 0.0;
+                    if (!da.GetData(i, ref value))
+                    {
+                        return;
+                    }
+
+                    numbers.Add(value);
+                }
+                else
+                {
+                    var value = Vector3d.Zero;
+                    if (!da.GetData(i, ref value))
+                    {
+                        return;
+                    }
+
+                    vectors.Add(value);
+                }
+            }
+
+            List<StbLineLoadSegment> segments;
+            try
+            {
+                segments = StbLineLoadShapes.BuildSegments(_lineLoadShape, numbers, vectors);
+            }
+            catch (InvalidOperationException ex)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, ex.Message);
+                return;
+            }
 
             var axis = elementGoo.Value.Line.Direction;
-            if (axis.Unitize())
+            var axisValid = axis.Unitize();
+            foreach (var segment in segments)
             {
+                if (!axisValid)
+                {
+                    continue;
+                }
+
                 var axialAtI = isGlobal
-                    ? Vector3d.Multiply(loadAtI, axis)
-                    : loadAtI.X;
+                    ? Vector3d.Multiply(segment.Wi, axis)
+                    : segment.Wi.X;
                 var axialAtJ = isGlobal
-                    ? Vector3d.Multiply(loadAtJ, axis)
-                    : loadAtJ.X;
+                    ? Vector3d.Multiply(segment.Wj, axis)
+                    : segment.Wj.X;
                 if (Math.Abs(axialAtI) > 1e-9 || Math.Abs(axialAtJ) > 1e-9)
                 {
                     AddRuntimeMessage(
                         GH_RuntimeMessageLevel.Warning,
                         "The STB solver currently ignores the member-axis component of ELOD.");
+                    break;
                 }
             }
 
-            da.SetData(0, new StbLoadGoo(new StbLoadModel
+            var loads = new List<StbLoadGoo>();
+            foreach (var segment in segments)
             {
-                Kind = StbLoadKind.Line,
-                ElementLine = elementGoo.Value.Line,
-                LoadCase = loadCase,
-                IsGlobal = isGlobal,
-                LoadAtI = loadAtI,
-                LoadAtJ = loadAtJ,
-            }));
+                loads.Add(new StbLoadGoo(new StbLoadModel
+                {
+                    Kind = StbLoadKind.Line,
+                    ElementLine = elementGoo.Value.Line,
+                    LoadCase = loadCase,
+                    IsGlobal = isGlobal,
+                    LoadAtI = segment.Wi,
+                    LoadAtJ = segment.Wj,
+                    T0 = segment.T0,
+                    T1 = segment.T1,
+                }));
+            }
+
+            da.SetDataList(0, loads);
+        }
+
+        internal void SetLineLoadShape(int shape)
+        {
+            if (shape == _lineLoadShape || shape < 0 || shape >= StbLineLoadShapes.ModeCount)
+            {
+                return;
+            }
+
+            RecordUndoEvent("Change line load shape");
+            _lineLoadShape = shape;
+            RebuildShapeInputs();
+        }
+
+        public override bool Write(GH_IWriter writer)
+        {
+            writer.SetInt32(LineLoadShapeKey, _lineLoadShape);
+            return base.Write(writer);
+        }
+
+        public override bool Read(GH_IReader reader)
+        {
+            if (reader.ItemExists(LineLoadShapeKey))
+            {
+                var shape = reader.GetInt32(LineLoadShapeKey);
+                if (shape >= 0 && shape < StbLineLoadShapes.ModeCount)
+                {
+                    _lineLoadShape = shape;
+                    RebuildShapeInputs(expireSolution: false);
+                }
+            }
+
+            return base.Read(reader);
+        }
+
+        private static void AddShapeParameters(GH_InputParamManager pManager, int shape)
+        {
+            foreach (var input in StbLineLoadShapes.ExtraInputs(shape))
+            {
+                if (input.IsVector)
+                {
+                    pManager.AddVectorParameter(
+                        input.Name,
+                        input.NickName,
+                        input.Description,
+                        GH_ParamAccess.item,
+                        input.VectorDefault);
+                }
+                else
+                {
+                    pManager.AddNumberParameter(
+                        input.Name,
+                        input.NickName,
+                        input.Description,
+                        GH_ParamAccess.item,
+                        input.NumberDefault);
+                }
+            }
+        }
+
+        private void RebuildShapeInputs(bool expireSolution = true)
+        {
+            for (var i = Params.Input.Count - 1; i >= 3; i--)
+            {
+                Params.UnregisterInputParameter(Params.Input[i], true);
+            }
+
+            foreach (var input in StbLineLoadShapes.ExtraInputs(_lineLoadShape))
+            {
+                if (input.IsVector)
+                {
+                    var parameter = new Param_Vector
+                    {
+                        Name = input.Name,
+                        NickName = input.NickName,
+                        Description = input.Description,
+                        Access = GH_ParamAccess.item,
+                    };
+                    parameter.SetPersistentData(input.VectorDefault);
+                    Params.RegisterInputParam(parameter);
+                }
+                else
+                {
+                    var parameter = new Param_Number
+                    {
+                        Name = input.Name,
+                        NickName = input.NickName,
+                        Description = input.Description,
+                        Access = GH_ParamAccess.item,
+                    };
+                    parameter.SetPersistentData(input.NumberDefault);
+                    Params.RegisterInputParam(parameter);
+                }
+            }
+
+            Params.OnParametersChanged();
+            Attributes?.ExpireLayout();
+            if (expireSolution)
+            {
+                ExpireSolution(true);
+            }
         }
     }
 

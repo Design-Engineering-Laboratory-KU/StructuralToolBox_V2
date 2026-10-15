@@ -332,12 +332,25 @@ namespace StbGrasshopper
             foreach (var (load, wi, wj) in lines)
             {
                 var line = load.ElementLine;
-                AddDistributed(line, wi, wj, factor, spacing, LineColor);
+                var t0 = load.T0;
+                var t1 = load.T1;
+                var segmentLine = new Line(line.PointAt(t0), line.PointAt(t1));
+                if (!segmentLine.IsValid || segmentLine.Length <= Zero)
+                {
+                    continue;
+                }
+
+                AddDistributed(segmentLine, wi, wj, factor, spacing, LineColor);
 
                 var label = Number(wi.Length) + (Math.Abs(wi.Length - wj.Length) > Zero ? " – " + Number(wj.Length) : string.Empty) + " kN/m";
                 var mid = (wi + wj) * 0.5;
-                AddLabel(label, line.PointAt(0.5) - mid * factor, LineColor);
-                descriptions.Add("Line LC" + load.LoadCase + (load.IsGlobal ? " global" : " local")
+                var labelT = (t0 + t1) * 0.5;
+                AddLabel(label, line.PointAt(labelT) - mid * factor, LineColor);
+                const double rangeTol = 1e-12;
+                var rangeSuffix = Math.Abs(t0) <= rangeTol && Math.Abs(t1 - 1.0) <= rangeTol
+                    ? string.Empty
+                    : " [" + Number(t0) + "-" + Number(t1) + "]";
+                descriptions.Add("Line LC" + load.LoadCase + rangeSuffix + (load.IsGlobal ? " global" : " local")
                     + ": wi=" + Format(load.LoadAtI) + ", wj=" + Format(load.LoadAtJ) + " kN/m");
             }
         }

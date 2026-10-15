@@ -4,6 +4,7 @@ import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { attachI18n } from "./i18n.js";
+import { forceSegments, sampleStations, sectionForceAt } from "./section_forces.js";
 
 const COLORS = {
   background: 0xe1dee4,
@@ -7159,8 +7160,12 @@ function drawElementInputLoads(model, opts) {
     const w = ld.w;
     if (elementLoadMagnitude(w) < 1e-9) continue;
 
-    const p0 = nodePosition(n0, model, lc, defFac, deformed);
-    const p1 = nodePosition(n1, model, lc, defFac, deformed);
+    const memberP0 = nodePosition(n0, model, lc, defFac, deformed);
+    const memberP1 = nodePosition(n1, model, lc, defFac, deformed);
+    const t0 = Math.max(0, Math.min(1, Number.isFinite(Number(ld.t0)) ? Number(ld.t0) : 0));
+    const t1 = Math.max(t0, Math.min(1, Number.isFinite(Number(ld.t1)) ? Number(ld.t1) : 1));
+    const p0 = elemPointAlong(memberP0, memberP1, t0);
+    const p1 = elemPointAlong(memberP0, memberP1, t1);
     drawTrapezoidalDistributedLoad(ld, e, p0, p1, {
       arrowBase,
       maxWMag,
@@ -8342,48 +8347,24 @@ function memberLoadSign(e) {
   return e.is_vxz && e.vx && e.vx[2] > 0 ? -1 : 1;
 }
 
-function computeDispFac(model, forceId, lcKey, frcFactor) {
+function forceComponentName(forceId) {
+  return ["", "N", "Qy", "Qz", "Mx", "My", "Mz"][forceId] || "";
+}
+
+function computeDispFac(model, forceId, lcKey, frcFactor, divNum) {
   const b = model.bounds;
   if (!b) return 1;
   const span = Math.max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1);
-  const rowMap = {
-    1: [0, 6],
-    2: [1, 7],
-    3: [2, 8],
-    4: [3, 9],
-    5: [4, 10, 12],
-    6: [5, 11, 13],
-  };
-  const rows = rowMap[forceId] || [];
+  const component = forceComponentName(forceId);
   let overallMax = 0;
 
   for (const e of model.elements) {
     const f = e.forces && e.forces[lcKey];
     if (!f) continue;
-    for (const r of rows) {
-      overallMax = Math.max(overallMax, Math.abs(f[r] || 0));
-    }
-  }
-
-  if (forceId === 5 || forceId === 6) {
-    for (const e of model.elements) {
-      const f = e.forces && e.forces[lcKey];
-      const lds = e.local_wloads && e.local_wloads[lcKey];
-      if (!f || !lds) continue;
-      const len = e.len || 1;
-      const s = memberLoadSign(e);
-      const wzi = s * lds[2], wzj = s * lds[5], wyi = s * lds[1], wyj = s * lds[4];
-      if (forceId === 5) {
-        const qzi = f[2], myi = f[4];
-        const wXc = wzi + (wzj - wzi) * 0.5;
-        const mXc = myi + qzi * 0.5 * len + (1 / 6) * (2 * wzi + wXc) * (0.5 * len) ** 2;
-        overallMax = Math.max(overallMax, Math.abs(mXc));
-      } else if (forceId === 6) {
-        const qyi = f[1], mzi = f[5];
-        const wXc = wyi + (wyj - wyi) * 0.5;
-        const mXc = mzi - qyi * 0.5 * len - (1 / 6) * (2 * wyi + wXc) * (0.5 * len) ** 2;
-        overallMax = Math.max(overallMax, Math.abs(mXc));
-      }
+    const segs = forceSegments(e, lcKey, memberLoadSign);
+    for (const t of sampleStations(divNum, segs)) {
+      const value = sectionForceAt(f, e.len || 0, segs, t)[component];
+      overallMax = Math.max(overallMax, Math.abs(value || 0));
     }
   }
 
@@ -8441,12 +8422,6 @@ function addForceValueLabelWithLeader(text, diagramPt, axisPt, span, group) {
   forceLabelEntries.push(entry);
 }
 
-function anchorDiagramValue(rawValue, rawMid, rawEnd, targetMid, targetEnd, t) {
-  const midCorrection = (targetMid - rawMid) * 4 * t * (1 - t);
-  const endCorrection = (targetEnd - rawEnd) * (2 * t * t - t);
-  return rawValue + midCorrection + endCorrection;
-}
-
 function buildForceDiagrams(model) {
   clearGroup(forceGroup);
   clearGroup(forceLabelGroup);
@@ -8468,9 +8443,10 @@ function buildForceDiagrams(model) {
   const deformed = el.chkDeformed.checked && analysisComplete(model);
   const divNum = parseInt(el.frcDiv.value, 10) || 8;
   const frcFactor = parseFloat(el.frcFactor.value) || 10;
-  const dispFac = computeDispFac(model, forceId, lcKey, frcFactor);
+  const dispFac = computeDispFac(model, forceId, lcKey, frcFactor, divNum);
   const nm = nodeMap(model);
   const showValues = el.chkForceValues.checked;
+  const component = forceComponentName(forceId);
 
   for (const e of model.elements) {
     if (!isMemberElementVisible(e.id)) continue;
@@ -8481,142 +8457,68 @@ function buildForceDiagrams(model) {
 
     const p0 = nodePosition(n0, model, lc, defFac, deformed);
     const p1 = nodePosition(n1, model, lc, defFac, deformed);
-    const loadSign = memberLoadSign(e);
-    const lds = ((e.local_wloads && e.local_wloads[lcKey]) || [0, 0, 0, 0, 0, 0])
-      .map(function (w) { return loadSign * w; });
+    const segs = forceSegments(e, lcKey, memberLoadSign);
+    const stations = sampleStations(divNum, segs);
     const stemPts = [];
     const splinePts = [];
     const labels = [];
+    let axis;
+    let diagramSign = 1;
 
     if (forceId === 1) {
-      let vz = new THREE.Vector3().fromArray(e.vz);
-      if (e.is_vxz && e.vx && e.vx[2] < PRES_ZERO) vz.multiplyScalar(-1);
-      const ni = f[0], nj = f[6];
-      const nXc = 0.5 * ni + 0.5 * nj;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vz, dispFac * nXc);
-
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const nX = ni + (nj - ni) * t;
-        const ptF = pt.clone().addScaledVector(vz, dispFac * nX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: ni, pt: splinePts[0], axisPt: p0 },
-        { val: nXc, pt: mp, axisPt: pMid },
-        { val: nj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+      axis = new THREE.Vector3().fromArray(e.vz);
+      if (e.is_vxz && e.vx && e.vx[2] < PRES_ZERO) axis.multiplyScalar(-1);
     } else if (forceId === 2) {
       // Positive (clockwise) shear goes on the +local-axis side, i.e. above a
       // beam as in Japanese practice; vertical members report flipped signs.
-      const vy = new THREE.Vector3().fromArray(e.vy);
-      if (e.is_vxz) vy.multiplyScalar(-1);
-      const wyi = lds[1], wyj = lds[4];
-      const qyi = f[1], qyj = f[7];
-      const wXc = wyi + (wyj - wyi) * 0.5;
-      const qXc = qyi + 0.5 * (wyi + wXc) * 0.5 * e.len;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vy, dispFac * qXc);
-
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const x = t * e.len;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const wX = wyi + (wyj - wyi) * t;
-        const qX = qyi + 0.5 * (wyi + wX) * x;
-        const ptF = pt.clone().addScaledVector(vy, dispFac * qX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: qyi, pt: splinePts[0], axisPt: p0 },
-        { val: qXc, pt: mp, axisPt: pMid },
-        { val: qyj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+      axis = new THREE.Vector3().fromArray(e.vy);
+      if (e.is_vxz) axis.multiplyScalar(-1);
     } else if (forceId === 3) {
-      const vz = new THREE.Vector3().fromArray(e.vz);
-      if (e.is_vxz) vz.multiplyScalar(-1);
-      const wzi = lds[2], wzj = lds[5];
-      const qzi = f[2], qzj = f[8];
-      const wXc = wzi + (wzj - wzi) * 0.5;
-      const qXc = qzi + 0.5 * (wzi + wXc) * 0.5 * e.len;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vz, dispFac * qXc);
-
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const x = t * e.len;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const wX = wzi + (wzj - wzi) * t;
-        const qX = qzi + 0.5 * (wzi + wX) * x;
-        const ptF = pt.clone().addScaledVector(vz, dispFac * qX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: qzi, pt: splinePts[0], axisPt: p0 },
-        { val: qXc, pt: mp, axisPt: pMid },
-        { val: qzj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+      axis = new THREE.Vector3().fromArray(e.vz);
+      if (e.is_vxz) axis.multiplyScalar(-1);
     } else if (forceId === 5) {
-      let vz = new THREE.Vector3().fromArray(e.vz);
-      if (e.is_vxz) vz.multiplyScalar(-1);
-      const wzi = lds[2], wzj = lds[5];
-      const qzi = f[2], myi = f[4], myj = f[10];
-      const wXc = wzi + (wzj - wzi) * 0.5;
-      const mXcCalc = myi + qzi * 0.5 * e.len + (1 / 6) * (2 * wzi + wXc) * (0.5 * e.len) ** 2;
-      const mXc = Number.isFinite(f[12]) ? f[12] : mXcCalc;
-      const mEndCalc = myi + qzi * e.len + (1 / 6) * (2 * wzi + wzj) * e.len * e.len;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vz, -dispFac * mXc);
-
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const x = t * e.len;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const wX = wzi + (wzj - wzi) * t;
-        const mRaw = myi + qzi * x + (1 / 6) * (2 * wzi + wX) * x * x;
-        const mX = anchorDiagramValue(mRaw, mXcCalc, mEndCalc, mXc, myj, t);
-        const ptF = pt.clone().addScaledVector(vz, -dispFac * mX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: myi, pt: splinePts[0], axisPt: p0 },
-        { val: mXc, pt: mp, axisPt: pMid },
-        { val: myj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+      axis = new THREE.Vector3().fromArray(e.vz);
+      if (e.is_vxz) axis.multiplyScalar(-1);
+      diagramSign = -1;
     } else if (forceId === 6) {
-      let vy = new THREE.Vector3().fromArray(e.vy);
-      if (e.is_vxz) vy.multiplyScalar(-1);
-      const wyi = lds[1], wyj = lds[4];
-      const qyi = f[1], mzi = f[5], mzj = f[11];
-      const wXc = wyi + (wyj - wyi) * 0.5;
-      const mXcCalc = mzi - qyi * 0.5 * e.len - (1 / 6) * (2 * wyi + wXc) * (0.5 * e.len) ** 2;
-      const mXc = Number.isFinite(f[13]) ? f[13] : mXcCalc;
-      const mEndCalc = mzi - qyi * e.len - (1 / 6) * (2 * wyi + wyj) * e.len * e.len;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vy, dispFac * mXc);
+      axis = new THREE.Vector3().fromArray(e.vy);
+      if (e.is_vxz) axis.multiplyScalar(-1);
+    }
 
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const x = t * e.len;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const wX = wyi + (wyj - wyi) * t;
-        const mRaw = mzi - qyi * x - (1 / 6) * (2 * wyi + wX) * x * x;
-        const mX = anchorDiagramValue(mRaw, mXcCalc, mEndCalc, mXc, mzj, t);
-        const ptF = pt.clone().addScaledVector(vy, dispFac * mX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: mzi, pt: splinePts[0], axisPt: p0 },
-        { val: mXc, pt: mp, axisPt: pMid },
-        { val: mzj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+    const sampled = [];
+    for (const t of stations) {
+      const value = sectionForceAt(f, e.len, segs, t)[component];
+      const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
+      const ptF = pt.clone().addScaledVector(axis, diagramSign * dispFac * value);
+      stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
+      splinePts.push(ptF);
+      sampled.push({ t: t, val: value, pt: ptF, axisPt: pt });
+    }
+
+    const labelStations = [0, 0.5, 1].map(function (t) {
+      const value = sectionForceAt(f, e.len, segs, t)[component];
+      const axisPt = new THREE.Vector3().lerpVectors(p0, p1, t);
+      return {
+        t: t,
+        val: value,
+        axisPt: axisPt,
+        pt: axisPt.clone().addScaledVector(axis, diagramSign * dispFac * value),
+      };
+    });
+    labels.push(...labelStations);
+
+    let extreme = sampled[0];
+    for (const item of sampled) {
+      if (Math.abs(item.val) > Math.abs(extreme.val)) extreme = item;
+    }
+    const midAbs = Math.abs(labelStations[1].val);
+    if (
+      extreme.t > 1e-6 && extreme.t < 1 - 1e-6 &&
+      Math.abs(extreme.t - 0.5) > 1e-6 &&
+      Math.abs(extreme.val) > midAbs * 1.01 &&
+      Math.abs(extreme.val) > PRES_ZERO
+    ) {
+      labels.push(extreme);
     }
 
     addForceStemAndSpline(stemPts, splinePts, forceGroup);

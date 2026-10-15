@@ -173,6 +173,7 @@ namespace StbGrasshopper
             }
 
             var rawSegments = new List<RawStressSegment>();
+            var hasElementLoadSegments = results.ElementLoadSegments.Count > 0;
             foreach (var force in results.ElementForces)
             {
                 if (!StbLoadCaseFilter.Matches(loadCase, force.LoadCase))
@@ -193,23 +194,55 @@ namespace StbGrasshopper
                     continue;
                 }
 
-                for (var i = 0; i < divisions; i++)
+                if (hasElementLoadSegments)
                 {
-                    var t0 = (double)i / divisions;
-                    var t1 = (double)(i + 1) / divisions;
-                    var stress = StressAt(force, section, 0.5 * (t0 + t1));
-                    if (!IsFinite(stress))
+                    var loadSegments = results.GetElementLoadSegments(force.LoadCase, force.ElementId);
+                    var stations = StbSectionForces.Stations(divisions, loadSegments);
+                    var length = start.DistanceTo(end);
+                    for (var i = 0; i < stations.Count - 1; i++)
                     {
-                        continue;
+                        var t0 = stations[i];
+                        var t1 = stations[i + 1];
+                        var values = StbSectionForces.Evaluate(
+                            force,
+                            length,
+                            loadSegments,
+                            0.5 * (t0 + t1));
+                        var stress = StressAt(values, section);
+                        if (!IsFinite(stress))
+                        {
+                            continue;
+                        }
+
+                        var line = new Line(
+                            Interpolate(start, end, t0),
+                            Interpolate(start, end, t1));
+
+                        rawSegments.Add(new RawStressSegment(line, stress));
+                        _legendMaximum = Math.Max(_legendMaximum, stress);
+                        _clippingBox.Union(line.BoundingBox);
                     }
+                }
+                else
+                {
+                    for (var i = 0; i < divisions; i++)
+                    {
+                        var t0 = (double)i / divisions;
+                        var t1 = (double)(i + 1) / divisions;
+                        var stress = StressAt(force, section, 0.5 * (t0 + t1));
+                        if (!IsFinite(stress))
+                        {
+                            continue;
+                        }
 
-                    var line = new Line(
-                        Interpolate(start, end, t0),
-                        Interpolate(start, end, t1));
+                        var line = new Line(
+                            Interpolate(start, end, t0),
+                            Interpolate(start, end, t1));
 
-                    rawSegments.Add(new RawStressSegment(line, stress));
-                    _legendMaximum = Math.Max(_legendMaximum, stress);
-                    _clippingBox.Union(line.BoundingBox);
+                        rawSegments.Add(new RawStressSegment(line, stress));
+                        _legendMaximum = Math.Max(_legendMaximum, stress);
+                        _clippingBox.Union(line.BoundingBox);
+                    }
                 }
             }
 
@@ -287,6 +320,21 @@ namespace StbGrasshopper
             var axial = Math.Abs(force.Ni + (force.Nj - force.Ni) * t) * 1e3 / section.Area;
             var bendingY = Math.Abs(Quadratic(force.Myi, force.Myc, force.Myj, t)) * 1e6 / section.Wy;
             var bendingZ = Math.Abs(Quadratic(force.Mzi, force.Mzc, force.Mzj, t)) * 1e6 / section.Wz;
+
+            switch (_mode)
+            {
+                case 1: return axial;
+                case 2: return bendingY;
+                case 3: return bendingZ;
+                default: return axial + bendingY + bendingZ;
+            }
+        }
+
+        private double StressAt(SectionForceValues force, StbSectionProperties section)
+        {
+            var axial = Math.Abs(force.N) * 1e3 / section.Area;
+            var bendingY = Math.Abs(force.My) * 1e6 / section.Wy;
+            var bendingZ = Math.Abs(force.Mz) * 1e6 / section.Wz;
 
             switch (_mode)
             {

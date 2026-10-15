@@ -105,9 +105,9 @@ PLOD_FMTS = [">6", ">4", ">8", ">8", ">8", ">8", ">8", ">8"]
 PLOD_NAMES = ["NODE", "LC", "PX", "PY", "PZ", "MX", "MY", "MZ"]
 PLOD_UNITS = ["", "", "kN", "kN", "kN", "kNm", "kNm", "kNm"]
 
-ELOD_FMTS = [">6", ">4", ">4", ">8", ">8", ">8", ">8", ">8", ">8"]
-ELOD_NAMES = ["ELEM", "LC", "EG", "WXi", "WYi", "WZi", "WXj", "WYj", "WZj"]
-ELOD_UNITS = ["", "", "", "kN/m", "kN/m", "kN/m", "kN/m", "kN/m", "kN/m"]
+ELOD_FMTS = [">6", ">4", ">4", ">8", ">8", ">8", ">8", ">8", ">8", ">6", ">6"]
+ELOD_NAMES = ["ELEM", "LC", "EG", "WXi", "WYi", "WZi", "WXj", "WYj", "WZj", "T0", "T1"]
+ELOD_UNITS = ["", "", "", "kN/m", "kN/m", "kN/m", "kN/m", "kN/m", "kN/m", "-", "-"]
 
 ALOD_FMTS = [">6", ">8", ">8", ">8", ">6", ">6", ">6", ">6"]
 ALOD_NAMES = ["LC", "PX", "PY", "PZ", "E1", "E2", "E3", "E4"]

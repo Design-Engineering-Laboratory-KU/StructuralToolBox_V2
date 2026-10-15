@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace StbGrasshopper
@@ -20,9 +21,38 @@ namespace StbGrasshopper
         public List<NodalDisplacement> Displacements { get; } = new List<NodalDisplacement>();
         public List<ReactionForce> Reactions { get; } = new List<ReactionForce>();
         public List<ElementForce> ElementForces { get; } = new List<ElementForce>();
+        public List<ElementLoadSegment> ElementLoadSegments { get; } = new List<ElementLoadSegment>();
         public List<StbSectionProperties> Sections { get; } = new List<StbSectionProperties>();
         public List<StbNodeGeometry> Nodes { get; } = new List<StbNodeGeometry>();
         public List<StbElementGeometry> Elements { get; } = new List<StbElementGeometry>();
+
+        private Dictionary<(int LoadCase, int ElementId), List<ElementLoadSegment>> _loadSegmentLookup;
+        private int _loadSegmentLookupCount = -1;
+
+        public IReadOnlyList<ElementLoadSegment> GetElementLoadSegments(int loadCase, int elementId)
+        {
+            if (_loadSegmentLookup == null || _loadSegmentLookupCount != ElementLoadSegments.Count)
+            {
+                _loadSegmentLookup = new Dictionary<(int LoadCase, int ElementId), List<ElementLoadSegment>>();
+                foreach (var segment in ElementLoadSegments)
+                {
+                    var key = (segment.LoadCase, segment.ElementId);
+                    if (!_loadSegmentLookup.TryGetValue(key, out var list))
+                    {
+                        list = new List<ElementLoadSegment>();
+                        _loadSegmentLookup.Add(key, list);
+                    }
+
+                    list.Add(segment);
+                }
+
+                _loadSegmentLookupCount = ElementLoadSegments.Count;
+            }
+
+            return _loadSegmentLookup.TryGetValue((loadCase, elementId), out var segments)
+                ? segments
+                : Array.Empty<ElementLoadSegment>();
+        }
     }
 
     public sealed class NodalDisplacement
@@ -67,6 +97,20 @@ namespace StbGrasshopper
         public double Mzj { get; set; }
         public double Myc { get; set; }
         public double Mzc { get; set; }
+    }
+
+    public sealed class ElementLoadSegment
+    {
+        public int LoadCase { get; set; }
+        public int ElementId { get; set; }
+        public double T0 { get; set; }
+        public double T1 { get; set; }
+        public double WXi { get; set; }
+        public double WYi { get; set; }
+        public double WZi { get; set; }
+        public double WXj { get; set; }
+        public double WYj { get; set; }
+        public double WZj { get; set; }
     }
 
     public sealed class StbSectionProperties

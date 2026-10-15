@@ -66,6 +66,7 @@ def _elem_local_wloads(elem, mdl, lc_idx):
     """Sum element distributed loads in local ECS for one load-case index."""
 
     import numpy as np
+    from classes.ld import segment_linear_equivalent
 
     lds = np.zeros(6, dtype=float)
     elds = mdl.elds if mdl.elds != None else []
@@ -76,6 +77,9 @@ def _elem_local_wloads(elem, mdl, lc_idx):
         el_lds = np.array(el.lds, dtype=float).reshape(6)
         if el.isGlobal:
             el_lds = (elem.tm[0:6, 0:6] @ el_lds.reshape(6, 1)).flatten()
+        if el.is_partial:
+            # linear equivalent over the full member (same resultant and first moment)
+            el_lds = segment_linear_equivalent(elem.len, el.t0, el.t1, el_lds)
         lds += el_lds
 
     if elem.glds is not None and lc_idx < elem.glds.shape[1]:
@@ -132,6 +136,8 @@ def _gravity_element_load_entries(mdl):
                 "global": False,
                 "gravity": True,
                 "w": w,
+                "t0": 0.0,
+                "t1": 1.0,
                 "display_value": _element_load_display_value(w, is_gravity=True),
             })
     return entries
@@ -187,6 +193,8 @@ def _area_load_element_load_entries(mdl):
                 "global": False,
                 "area_load": True,
                 "w": w,
+                "t0": 0.0,
+                "t1": 1.0,
                 "w_profile": profile if len(profile) > 1 else None,
                 "display_value": _element_load_display_value(
                     [0.0, 0.0, _dominant_signed_component_profile(profile), 0.0, 0.0, 0.0],
@@ -371,9 +379,11 @@ def mdl_to_dict(mdl, relpath=None, solved=False):
                 float(e.pln.vz.v[0]), float(e.pln.vz.v[1]), float(e.pln.vz.v[2]),
             ]
         if solved and e.forces is not None and mdl.lcs != None:
+            from classes.ld import diagram_wsegs
             item["forces"] = {}
             item["local_wloads"] = {}
             item["end_rots"] = {}
+            item["wsegs"] = {}
             end_rots = None
             if getattr(e, "ndisps", None) is not None and e.pln is not None:
                 from classes.solve import member_end_bending_rotations
@@ -385,6 +395,9 @@ def mdl_to_dict(mdl, relpath=None, solved=False):
                 item["forces"][str(lc)] = [float(f[j]) for j in range(f.shape[0])]
                 w = _elem_local_wloads(e, mdl, i)
                 item["local_wloads"][str(lc)] = [float(w[j]) for j in range(6)]
+                # diagram convention, N/m (like local_wloads); EWLD in .out is kN/m
+                item["wsegs"][str(lc)] = (
+                    diagram_wsegs(e, i, 1.0) if e.pln is not None else [])
         elements.append(item)
 
     supports = []
@@ -448,6 +461,8 @@ def mdl_to_dict(mdl, relpath=None, solved=False):
             "lc": el.lc,
             "global": bool(el.isGlobal),
             "w": w,
+            "t0": float(el.t0),
+            "t1": float(el.t1),
             "display_value": _element_load_display_value(w, is_gravity=False),
         })
     element_loads.extend(_gravity_element_load_entries(mdl))

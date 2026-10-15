@@ -311,6 +311,8 @@ namespace StbGrasshopper
         public bool IsGlobal { get; set; } = true;
         public Vector3d LoadAtI { get; set; }
         public Vector3d LoadAtJ { get; set; }
+        public double T0 { get; set; }
+        public double T1 { get; set; } = 1.0;
         public Vector3d Pressure { get; set; }
         public Vector3d Acceleration { get; set; }
         public string CombinationName { get; set; } = string.Empty;
@@ -330,6 +332,8 @@ namespace StbGrasshopper
                 IsGlobal = IsGlobal,
                 LoadAtI = LoadAtI,
                 LoadAtJ = LoadAtJ,
+                T0 = T0,
+                T1 = T1,
                 Pressure = Pressure,
                 Acceleration = Acceleration,
                 CombinationName = CombinationName,
@@ -402,7 +406,9 @@ namespace StbGrasshopper
         {
             var loadAtI = reverse ? LoadAtJ : LoadAtI;
             var loadAtJ = reverse ? LoadAtI : LoadAtJ;
-            return "ELOD,"
+            var t0 = reverse ? 1.0 - T1 : T0;
+            var t1 = reverse ? 1.0 - T0 : T1;
+            var record = "ELOD,"
                 + elementId
                 + ","
                 + LoadCase
@@ -420,6 +426,16 @@ namespace StbGrasshopper
                 + StbRecord.Number(loadAtJ.Y)
                 + ","
                 + StbRecord.Number(loadAtJ.Z);
+            const double rangeTol = 1e-12;
+            if (Math.Abs(t0) > rangeTol || Math.Abs(t1 - 1.0) > rangeTol)
+            {
+                record += ","
+                    + StbRecord.Number(t0)
+                    + ","
+                    + StbRecord.Number(t1);
+            }
+
+            return record;
         }
 
         public string ToAlodRecord(IReadOnlyList<int> elementIds)
@@ -450,7 +466,19 @@ namespace StbGrasshopper
             switch (Kind)
             {
                 case StbLoadKind.Line:
-                    return "Line load LC" + LoadCase;
+                    const double rangeTol = 1e-12;
+                    if (Math.Abs(T0) <= rangeTol && Math.Abs(T1 - 1.0) <= rangeTol)
+                    {
+                        return "Line load LC" + LoadCase;
+                    }
+
+                    return "Line load LC"
+                        + LoadCase
+                        + " ["
+                        + StbRecord.Number(T0)
+                        + "-"
+                        + StbRecord.Number(T1)
+                        + "]";
                 case StbLoadKind.Area:
                     return "Area load LC" + LoadCase;
                 case StbLoadKind.Gravity:

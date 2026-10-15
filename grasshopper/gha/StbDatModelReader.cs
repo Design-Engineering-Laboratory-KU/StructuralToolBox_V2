@@ -96,12 +96,36 @@ namespace StbGrasshopper
                             new Vector3d(Number(parts, 6), Number(parts, 7), Number(parts, 8))));
                         break;
                     case "ELOD":
+                        var elementId = Integer(parts, 1);
+                        var t0Optional = OptionalNumber(parts, 10);
+                        var t1Optional = OptionalNumber(parts, 11);
+                        var t0 = 0.0;
+                        var t1 = 1.0;
+                        if (t0Optional.HasValue || t1Optional.HasValue)
+                        {
+                            if (!t0Optional.HasValue || !t1Optional.HasValue)
+                            {
+                                throw new FormatException(
+                                    "ELOD on element " + elementId + " must include both T0 and T1 or neither.");
+                            }
+
+                            t0 = t0Optional.Value;
+                            t1 = t1Optional.Value;
+                            if (t0 < 0.0 || t1 > 1.0 || t0 >= t1 || t1 - t0 <= 1e-9)
+                            {
+                                throw new FormatException(
+                                    "ELOD on element " + elementId + " has invalid T0/T1 range.");
+                            }
+                        }
+
                         lineLoadRecords.Add(new LineLoadRecord(
-                            Integer(parts, 1),
+                            elementId,
                             Integer(parts, 2),
                             Integer(parts, 3) != 0,
                             new Vector3d(Number(parts, 4), Number(parts, 5), Number(parts, 6)),
-                            new Vector3d(Number(parts, 7), Number(parts, 8), Number(parts, 9))));
+                            new Vector3d(Number(parts, 7), Number(parts, 8), Number(parts, 9)),
+                            t0,
+                            t1));
                         break;
                     case "ALOD":
                         var boundaryIds = new List<int>();
@@ -234,6 +258,8 @@ namespace StbGrasshopper
                         IsGlobal = record.IsGlobal,
                         LoadAtI = record.LoadAtI,
                         LoadAtJ = record.LoadAtJ,
+                        T0 = record.T0,
+                        T1 = record.T1,
                     });
                 }
             }
@@ -357,13 +383,22 @@ namespace StbGrasshopper
 
         private sealed class LineLoadRecord
         {
-            public LineLoadRecord(int elementId, int loadCase, bool isGlobal, Vector3d loadAtI, Vector3d loadAtJ)
+            public LineLoadRecord(
+                int elementId,
+                int loadCase,
+                bool isGlobal,
+                Vector3d loadAtI,
+                Vector3d loadAtJ,
+                double t0,
+                double t1)
             {
                 ElementId = elementId;
                 LoadCase = loadCase;
                 IsGlobal = isGlobal;
                 LoadAtI = loadAtI;
                 LoadAtJ = loadAtJ;
+                T0 = t0;
+                T1 = t1;
             }
 
             public int ElementId { get; }
@@ -371,6 +406,8 @@ namespace StbGrasshopper
             public bool IsGlobal { get; }
             public Vector3d LoadAtI { get; }
             public Vector3d LoadAtJ { get; }
+            public double T0 { get; }
+            public double T1 { get; }
         }
 
         private sealed class AreaLoadRecord
