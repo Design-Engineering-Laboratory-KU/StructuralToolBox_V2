@@ -193,8 +193,8 @@ build. Override the destination when needed with
 virtual environment themselves, searching in this order.
 
 1. `Repo Root`, when given
-2. `%LOCALAPPDATA%\StructuralToolbox` (Windows student install)
-3. `~/Library/Application Support/StructuralToolbox` (macOS student install)
+2. `%LOCALAPPDATA%\StructuralToolbox` (Windows installer)
+3. `~/Library/Application Support/StructuralToolbox` (macOS installer)
 4. The folders above the loaded `.gha`, for developer checkouts
 
 Within each folder they accept `.venv\Scripts\python.exe`, `.venv/bin/python3`,

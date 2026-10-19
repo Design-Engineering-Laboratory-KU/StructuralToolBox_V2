@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the macOS student installer (tar.gz, and on Mac also dmg + pkg).
+"""Build the macOS installer (tar.gz, and on Mac also dmg + pkg).
 
 Windows or Linux produces StructuralToolbox_Mac_Setup_YYYYMMDD.tar.gz.
 On macOS the same command also produces a .dmg and a per-user .pkg.
@@ -18,10 +18,13 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-STUDENT = Path(__file__).resolve().parent
-MAC = STUDENT / "mac"
-DIST = STUDENT / "dist"
+INSTALLER = Path(__file__).resolve().parent
+MAC = INSTALLER / "mac"
+DIST = INSTALLER / "dist"
 CACHE = DIST / "_cache"
+# IDE C# language servers load any .csproj under the build folder and lock it,
+# so only the README of the plugin source is copied; the built .gha is added later.
+GHA_SOURCE = ROOT / "grasshopper" / "gha"
 
 SKIP_DIR_NAMES = {
     ".git",
@@ -34,7 +37,7 @@ SKIP_DIR_NAMES = {
     "python-standalone-x64",
     "__pycache__",
     ".pytest_cache",
-    "student",
+    "installer",
     ".idea",
     ".vscode",
     ".bench",
@@ -128,7 +131,7 @@ def fetch_pythons(version: str, release: str) -> dict[str, Path]:
                 f"Failed to download macOS Python {version} ({release}).\n"
                 f"  {url}\n"
                 f"  {exc}\n"
-                "Update student/PYTHON_EMBED_VERSION and student/PYTHON_MAC_RELEASE together."
+                "Update installer/PYTHON_EMBED_VERSION and installer/PYTHON_MAC_RELEASE together."
             ) from exc
         verify_sha256(archive, sha)
         paths[folder] = archive
@@ -144,12 +147,15 @@ def should_skip_dir(path: Path) -> bool:
 
 
 def ignore_payload(directory: str, names: list[str]) -> list[str]:
-    parent = Path(directory).name
+    here = Path(directory)
+    parent = here.name
     skipped = []
     for name in names:
         if name in SKIP_DIR_NAMES or name in SKIP_FILE_NAMES:
             skipped.append(name)
         elif name == "_tmp_out" and parent == "tests":
+            skipped.append(name)
+        elif here == GHA_SOURCE and name != "README.md":
             skipped.append(name)
     return skipped
 
@@ -194,19 +200,19 @@ def install_scripts(payload: Path) -> None:
         target = payload / name
         target.write_bytes(lf_bytes(MAC / name))
 
-    shutil.copyfile(STUDENT / "setup_runtime.py", payload / "setup_runtime.py")
+    shutil.copyfile(INSTALLER / "setup_runtime.py", payload / "setup_runtime.py")
 
-    sys.path.insert(0, str(STUDENT))
+    sys.path.insert(0, str(INSTALLER))
     import stage_docs
 
     stage_docs.stage(payload, "macos", ROOT)
 
 
 def include_wheels(payload: Path) -> None:
-    sys.path.insert(0, str(STUDENT))
+    sys.path.insert(0, str(INSTALLER))
     import fetch_wheels
 
-    source = fetch_wheels.build("macos", fetch_wheels.python_version(STUDENT / "PYTHON_EMBED_VERSION"))
+    source = fetch_wheels.build("macos", fetch_wheels.python_version(INSTALLER / "PYTHON_EMBED_VERSION"))
     fetch_wheels.copy_into_payload(source, payload)
     count = len(list((payload / "wheels").glob("*.whl")))
     print("OK: bundled libraries ({0} wheels)".format(count))
@@ -552,8 +558,8 @@ echo "完成: $PKG"
 
 
 def main() -> None:
-    version = read_text(STUDENT / "PYTHON_EMBED_VERSION")
-    release = read_text(STUDENT / "PYTHON_MAC_RELEASE")
+    version = read_text(INSTALLER / "PYTHON_EMBED_VERSION")
+    release = read_text(INSTALLER / "PYTHON_MAC_RELEASE")
     stamp = date.today().strftime("%Y%m%d")
     name = f"StructuralToolbox_Mac_Setup_{stamp}"
     stage = DIST / "_build" / name
@@ -608,7 +614,7 @@ def main() -> None:
         print(f"Done: {packager}")
         print("")
         print("This PC produced the tar.gz installer.")
-        print("Students: extract it, then right-click インストール.command and choose Open.")
+        print("To install: extract it, then right-click インストール.command and choose Open.")
         print("To also build .dmg and .pkg, copy the tar.gz and the .sh to one folder on a Mac and run:")
         print(f"  bash {packager.name}")
 

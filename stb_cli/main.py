@@ -79,7 +79,7 @@ def cmd_doctor(args):
         return EXIT_INPUT
 
     if not runtime.is_bundled() and getattr(args, "require_bundled", False):
-        _stderr("This is not the bundled Python of a student install.")
+        _stderr("This is not the bundled Python of an installer-based install.")
         return EXIT_INPUT
 
     return EXIT_OK
@@ -425,7 +425,7 @@ def _build_parser():
     p_doc.add_argument(
         "--require-bundled",
         action="store_true",
-        help="Fail unless running on the bundled Python of a student install",
+        help="Fail unless running on the bundled Python of an installer-based install",
     )
     p_doc.set_defaults(func=cmd_doctor)
 

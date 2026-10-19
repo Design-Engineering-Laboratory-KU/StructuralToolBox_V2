@@ -3,4 +3,4 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-python3 "$ROOT/student/build_student_mac.py"
+python3 "$ROOT/installer/build_mac.py"

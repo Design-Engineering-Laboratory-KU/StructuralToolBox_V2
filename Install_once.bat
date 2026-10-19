@@ -14,7 +14,7 @@ set "PYTHONNOUSERSITE=1"
 set "PY=%~dp0python-embed\python.exe"
 if not exist "%PY%" (
     echo [ERROR] Bundled Python was not found: python-embed\python.exe
-    echo Unzip the distributed file again, or ask your instructor.
+    echo Unzip the distributed file again, or contact the distributor.
     if /i not "%~1"=="/silent" pause
     exit /b 1
 )

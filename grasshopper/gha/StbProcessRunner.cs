@@ -136,7 +136,7 @@ namespace StbGrasshopper
 
         /// <summary>
         /// Finds the Python that ships with Structural Toolbox. A Python the
-        /// student installed for another course would lack the solver
+        /// user installed for something else would lack the solver
         /// libraries, so this never falls back to one found on PATH.
         /// </summary>
         private static bool TryResolveInterpreter(
@@ -191,7 +191,7 @@ namespace StbGrasshopper
                 roots.Add(Path.GetFullPath(repoRoot));
             }
 
-            // Install folder used by the student installers.
+            // Install folder used by the Windows and macOS installers.
             var appSupport = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             if (!string.IsNullOrWhiteSpace(appSupport))
             {

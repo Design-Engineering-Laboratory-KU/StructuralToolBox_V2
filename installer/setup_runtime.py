@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""First-time setup for a student install, run by the bundled Python.
+"""First-time setup for an installed copy, run by the bundled Python.
 
 Creates the install's own .venv, installs Structural Toolbox and its libraries
 from the bundled wheels, and verifies that the result runs on this interpreter.
@@ -25,7 +25,7 @@ IS_WINDOWS = os.name == "nt"
 
 
 class Failure(Exception):
-    """Setup cannot continue; the message is shown to the student."""
+    """Setup cannot continue; the message is shown to the user."""
 
 
 def out(text: str = "") -> None:
@@ -95,7 +95,7 @@ def bundled_python() -> Path:
         if candidate.exists():
             return candidate
     raise Failure(
-        "同梱の Python が見つかりません。配布ファイルを展開し直すか、教員に連絡してください。"
+        "同梱の Python が見つかりません。配布ファイルを展開し直すか、配布元に連絡してください。"
     )
 
 
@@ -197,7 +197,7 @@ def install_libraries(pip_args: list[str], offline: bool, silent: bool) -> None:
         out("必要なライブラリをインストールしています（5〜15 分・インターネットが必要です）...")
 
     hint = (
-        "配布ファイルの wheels フォルダが壊れている可能性があります。教員に連絡してください。"
+        "配布ファイルの wheels フォルダが壊れている可能性があります。配布元に連絡してください。"
         if offline
         else "インターネット接続を確認して、もう一度実行してください。"
     )

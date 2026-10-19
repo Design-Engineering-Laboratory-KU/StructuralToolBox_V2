@@ -85,6 +85,6 @@ loading `StbGrasshopper.gha`.
 - Keep paths as editable panel values rather than hard-coding them inside custom
   components.
 - Leave `Python Exe` and `Repo Root` empty so the same definition works on
-  Windows and macOS, and on student installs.
+  Windows and macOS, and on installer-based installs.
 - The `.ghx` sample should not include machine-specific absolute paths unless it
   is clearly marked as a local smoke-test file.

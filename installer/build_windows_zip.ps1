@@ -1,34 +1,34 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Windows 学生向け ZIP（同梱 Python）を作成する
+  Windows 用 ZIP（同梱 Python）を作成する
 
 .EXAMPLE
-  .\student\build_student_zip.ps1
-  .\student\build_student_zip.ps1 -SkipZip   # インストーラ用にフォルダだけ用意
+  .\installer\build_windows_zip.ps1
+  .\installer\build_windows_zip.ps1 -SkipZip   # インストーラ用にフォルダだけ用意
 #>
 param(
     [switch]$SkipZip
 )
 
 $ErrorActionPreference = 'Stop'
-$StudentDir = $PSScriptRoot
-$RepoRoot = Split-Path -Parent $StudentDir
-$DistDir = Join-Path $StudentDir 'dist'
+$InstallerDir = $PSScriptRoot
+$RepoRoot = Split-Path -Parent $InstallerDir
+$DistDir = Join-Path $InstallerDir 'dist'
 $BuildStamp = Get-Date -Format 'yyyyMMdd'
 $Name = "StructuralToolbox_Windows_$BuildStamp"
 $WorkDir = Join-Path $DistDir "_build\$Name"
 $ZipPath = Join-Path $DistDir "$Name.zip"
-$Version = (Get-Content -LiteralPath (Join-Path $StudentDir 'PYTHON_EMBED_VERSION') -Raw).Trim()
+$Version = (Get-Content -LiteralPath (Join-Path $InstallerDir 'PYTHON_EMBED_VERSION') -Raw).Trim()
 
 $ExcludeDirNames = @(
     '.git', '.venv', '.venv-win', '.venv_win', '.venv_py314_broken',
-    'python-embed', '__pycache__', '.pytest_cache', 'student', '.idea',
+    'python-embed', '__pycache__', '.pytest_cache', 'installer', '.idea',
     'tests\_tmp_out', '.vscode', 'structural_toolbox.egg-info'
 )
 $ExcludeFilePatterns = @('*.pyc')
 
-function Copy-StudentPayload {
+function Copy-Payload {
     param([string]$Dest)
     if (Test-Path -LiteralPath $Dest) {
         Remove-Item -LiteralPath $Dest -Recurse -Force
@@ -47,6 +47,18 @@ function Copy-StudentPayload {
             Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $Dest 'docs') -Recurse -Force
             $skipHtml = Join-Path $Dest 'docs\element_stiffness_matrix.html'
             if (Test-Path -LiteralPath $skipHtml) { Remove-Item -LiteralPath $skipHtml -Force }
+            return
+        }
+        if ($_.Name -eq 'grasshopper') {
+            # IDE C# language servers load any .csproj under the build folder and lock it,
+            # so the plugin source stays out; only the built .gha is added later.
+            $ghSource = $_.FullName
+            $ghDest = Join-Path $Dest 'grasshopper'
+            New-Item -ItemType Directory -Path (Join-Path $ghDest 'gha') -Force | Out-Null
+            Get-ChildItem -LiteralPath $ghSource -Force | Where-Object { $_.Name -ne 'gha' } | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $ghDest $_.Name) -Recurse -Force
+            }
+            Copy-Item -LiteralPath (Join-Path $ghSource 'gha\README.md') -Destination (Join-Path $ghDest 'gha\README.md') -Force
             return
         }
         Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $Dest $_.Name) -Recurse -Force
@@ -115,12 +127,12 @@ function Install-EmbedPython {
 
 function Include-SetupScript {
     param([string]$Dest)
-    Copy-Item -LiteralPath (Join-Path $StudentDir 'setup_runtime.py') -Destination (Join-Path $Dest 'setup_runtime.py') -Force
+    Copy-Item -LiteralPath (Join-Path $InstallerDir 'setup_runtime.py') -Destination (Join-Path $Dest 'setup_runtime.py') -Force
 }
 
 function Include-Wheels {
     param([string]$Dest)
-    $script = Join-Path $StudentDir 'fetch_wheels.py'
+    $script = Join-Path $InstallerDir 'fetch_wheels.py'
     Write-Host 'Collecting bundled libraries (wheels) ...'
     & py -3 $script windows --payload $Dest
     if ($LASTEXITCODE -ne 0) {
@@ -154,10 +166,10 @@ function Include-GrasshopperPlugin {
     Write-Host "OK: Grasshopper plugin ($artifact)"
 }
 
-Write-Host "Building student payload -> $WorkDir"
+Write-Host "Building payload -> $WorkDir"
 New-Item -ItemType Directory -Path (Split-Path -Parent $WorkDir) -Force | Out-Null
 
-Copy-StudentPayload -Dest $WorkDir
+Copy-Payload -Dest $WorkDir
 Install-EmbedPython -TargetDir $WorkDir
 Include-SetupScript -Dest $WorkDir
 Include-Wheels -Dest $WorkDir
@@ -169,9 +181,9 @@ foreach ($f in @('Install_once.bat', 'Start Structural Toolbox.bat', 'setup_runt
     }
 }
 
-& py -3 (Join-Path $StudentDir 'stage_docs.py') windows --payload $WorkDir
+& py -3 (Join-Path $InstallerDir 'stage_docs.py') windows --payload $WorkDir
 if ($LASTEXITCODE -ne 0) {
-    throw 'Failed to stage the student guides'
+    throw 'Failed to stage the guides'
 }
 
 if (-not $SkipZip) {
@@ -197,4 +209,4 @@ if (-not $SkipZip) {
 
 Write-Host ""
 Write-Host "Payload folder: $WorkDir"
-Write-Host "Next: .\student\build_student_installer.ps1 -SourceDir `"$WorkDir`""
+Write-Host "Next: .\installer\build_windows_installer.ps1 -SourceDir `"$WorkDir`""

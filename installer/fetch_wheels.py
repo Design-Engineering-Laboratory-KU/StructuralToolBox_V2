@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Download the solver/GUI libraries as wheels for the student installers.
+"""Download the solver/GUI libraries as wheels for the installers.
 
 Installers ship these so the first-time setup works without internet and
-always installs the same versions on every student machine.
+always installs the same versions on every machine.
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-STUDENT = Path(__file__).resolve().parent
-CACHE = STUDENT / "dist" / "_cache" / "wheels"
+INSTALLER = Path(__file__).resolve().parent
+CACHE = INSTALLER / "dist" / "_cache" / "wheels"
 
 # Runtime dependencies, kept in step with pyproject.toml.
 RUNTIME = [
@@ -164,7 +164,7 @@ def main() -> None:
     parser.add_argument("--payload", help="Copy the wheels into this payload folder")
     args = parser.parse_args()
 
-    py_version = python_version(STUDENT / "PYTHON_EMBED_VERSION")
+    py_version = python_version(INSTALLER / "PYTHON_EMBED_VERSION")
     dest = build(args.target, py_version)
     if args.payload:
         copy_into_payload(dest, Path(args.payload))

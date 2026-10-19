@@ -6,8 +6,8 @@
 #ifndef StbSourceDir
   #define StbSourceDir "dist\_installer_staging\Payload"
 #endif
-#ifndef StudentDist
-  #define StudentDist "dist"
+#ifndef OutputDist
+  #define OutputDist "dist"
 #endif
 #ifndef BuildStamp
   #define BuildStamp GetDateTimeString('yyyyMMdd', '', '')
@@ -27,7 +27,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\StructuralToolbox
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=no
-OutputDir={#StudentDist}
+OutputDir={#OutputDist}
 OutputBaseFilename=StructuralToolbox_Setup_{#BuildStamp}
 Compression=lzma2
 SolidCompression=yes

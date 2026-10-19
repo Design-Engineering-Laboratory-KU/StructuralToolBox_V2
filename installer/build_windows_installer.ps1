@@ -5,11 +5,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$StudentDir = $PSScriptRoot
-$DistDir = Join-Path $StudentDir 'dist'
+$InstallerDir = $PSScriptRoot
+$DistDir = Join-Path $InstallerDir 'dist'
 $StagingRoot = Join-Path $DistDir '_installer_staging'
 $PayloadDir = Join-Path $StagingRoot 'Payload'
-$IssFile = Join-Path $StudentDir 'StructuralToolbox.iss'
+$IssFile = Join-Path $InstallerDir 'StructuralToolbox.iss'
 $BuildStamp = Get-Date -Format 'yyyyMMdd'
 
 function Find-InnoSetupCompiler {
@@ -71,7 +71,7 @@ function Test-PayloadLayout {
     $guides = Get-ChildItem -LiteralPath $Dir -File -Filter '*.md' |
         Where-Object { $_.Name -notin @('README.md', 'report.md') }
     if (-not $guides) {
-        throw "Invalid payload (student guides are missing): $Dir"
+        throw "Invalid payload (guides are missing): $Dir"
     }
 }
 
@@ -86,7 +86,7 @@ else {
     $zips = Get-ChildItem -LiteralPath $DistDir -Filter 'StructuralToolbox_Windows_*.zip' -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending
     if (-not $zips) {
-        throw "No ZIP found. Run student\build_student_zip.ps1 first, or pass -ZipPath."
+        throw "No ZIP found. Run installer\build_windows_zip.ps1 first, or pass -ZipPath."
     }
     $ZipPath = $zips[0].FullName
     Write-Host "Using ZIP: $ZipPath"
@@ -107,7 +107,7 @@ Write-Host "Building installer with Inno Setup..."
 Write-Host "  Source: $PayloadDir"
 Write-Host ""
 
-& $Iscc "/DStbSourceDir=$PayloadDir" "/DStudentDist=$DistDir" "/DBuildStamp=$BuildStamp" $IssFile
+& $Iscc "/DStbSourceDir=$PayloadDir" "/DOutputDist=$DistDir" "/DBuildStamp=$BuildStamp" $IssFile
 if ($LASTEXITCODE -ne 0) {
     throw "ISCC failed with exit code $LASTEXITCODE"
 }

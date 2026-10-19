@@ -14,8 +14,8 @@ flowchart TD
   engine --> cli["stb_cli/: コマンド"]
   engine --> gui["stb_gui/: ブラウザGUI"]
   project["stb_project/: 物件・帳票メタ情報"] -.-> engine
-  student["student/: 学生配布ビルド"] --> cli
-  student --> gui
+  installer["installer/: インストーラのビルド"] --> cli
+  installer --> gui
 ```
 
 | 場所 | 役割 |
@@ -27,8 +27,8 @@ flowchart TD
 | `stb_project/` | `model.project.json` 用。建物情報、通り、層、部材分類、帳票設定などの上位メタ情報 |
 | `tests/` | 回帰テスト |
 | `data/`, `examples/` | サンプル `.dat` |
-| `docs/` | 入力形式、セットアップ、学生/教員向け手順 |
-| `student/` | ZIP/Setup.exe 作成用。学生配布パッケージのビルド専用 |
+| `docs/` | 入力形式、セットアップ、インストール手順、インストーラ作成手順 |
+| `installer/` | Windows（ZIP / Setup.exe）と Mac インストーラのビルド専用 |
 
 確認申請用の帳票範囲は、先に [`report_gap_map.md`](report_gap_map.md) で ASTIM計算書PDFとの差分、現状出力、木造平屋MVP対応、対象外項目を固定します。
 
@@ -121,7 +121,7 @@ GUI は「解析結果を見せる層」で、解析自体は `stb_engine` 経�
 | 確認申請用の物件情報・通り・層を扱う | `stb_project/` |
 | 計算書出力を作る | 今後 `stb_reports/` を追加するのがよさそう |
 | 木造断面検定を作る | 今後 `stb_checks/` を追加するのがよさそう |
-| 学生配布を直す | `student/`, `.bat`, `docs/学生用_*` |
+| インストーラを直す | `installer/`, `.bat`, `docs/インストール.md`, `docs/インストーラ作成.md` |
 
 ## 今後のおすすめ整理
 
@@ -155,7 +155,7 @@ flowchart TD
 - `classes/` の import は歴史的にフラット import 前提なので、通常パッケージ化すると影響が大きい。
 - 確認申請用の「通り・層・偏心率・帳票・検定」は、解析コアではなく外側の `stb_project`, `stb_checks`, `stb_reports` に置く。
 - 学校演習用の機能も、解析コアを直接分岐させず、教育向けの薄いレイヤーとして作る。
-- 学生配布は `student/` と `.bat` が担当するが、アプリ本体のロジックは `stb_cli/` と `stb_gui/` に置く。
+- インストーラは `installer/` と `.bat` が担当するが、アプリ本体のロジックは `stb_cli/` と `stb_gui/` に置く。
 
 ## まとめ
 

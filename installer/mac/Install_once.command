@@ -35,7 +35,7 @@ esac
 PY="$ROOT/$EMBED/bin/python3"
 if [[ ! -e "$PY" ]]; then
   echo "[エラー] 同梱の Python が見つかりません: $EMBED/"
-  echo "配布ファイルを展開し直すか、教員に連絡してください。"
+  echo "配布ファイルを展開し直すか、配布元に連絡してください。"
   pause_if_needed
   exit 1
 fi

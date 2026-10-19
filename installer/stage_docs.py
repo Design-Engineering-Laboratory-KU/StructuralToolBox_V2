@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy the student guides to the payload root under short names.
+"""Copy the install guide to the payload root under a short name.
 
 Windows PowerShell 5.1 reads .ps1 files as ANSI, which mangles Japanese string
 literals, so the builders call this instead of matching those names in script.
@@ -13,12 +13,10 @@ from pathlib import Path
 
 GUIDES = {
     "windows": {
-        "学生用_インストール_Windows.md": "はじめ方_インストーラ版.md",
-        "学生用_はじめ方_Windows.md": "はじめ方_Windows.md",
+        "インストール.md": "はじめ方_インストーラ版.md",
     },
     "macos": {
-        "学生用_インストール_Mac.md": "はじめ方_インストーラ版.md",
-        "学生用_はじめ方_Mac.md": "はじめ方_Mac.md",
+        "インストール.md": "はじめ方_インストーラ版.md",
     },
 }
 
