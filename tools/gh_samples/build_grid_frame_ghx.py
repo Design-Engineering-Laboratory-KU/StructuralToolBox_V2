@@ -364,7 +364,7 @@ def element(doc, x, y, name, sect, lines):
 
 
 def area_load(doc, x, y, nick, elements, lc, pressure):
-    comp = Component(doc, "aload", "STb Load", nick, x, y, [
+    comp = Component(doc, "aload", "STb Area Load", nick, x, y, [
         Param("STb Boundary Elements", "Elem"),
         Param("LC", "LC", lc, "int"),
         Param("Pressure", "P", pressure, "vec"),

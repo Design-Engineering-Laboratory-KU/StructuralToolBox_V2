@@ -11,6 +11,7 @@ $StagingRoot = Join-Path $DistDir '_installer_staging'
 $PayloadDir = Join-Path $StagingRoot 'Payload'
 $IssFile = Join-Path $InstallerDir 'StructuralToolbox.iss'
 $BuildStamp = Get-Date -Format 'yyyyMMdd'
+$AppVersion = (Get-Content -LiteralPath (Join-Path (Split-Path -Parent $InstallerDir) 'VERSION') -Raw).Trim()
 
 function Find-InnoSetupCompiler {
     $candidates = @(
@@ -55,6 +56,7 @@ function Test-PayloadLayout {
     $required = @(
         (Join-Path $Dir 'Install_once.bat'),
         (Join-Path $Dir 'setup_runtime.py'),
+        (Join-Path $Dir 'install_manifest.txt'),
         (Join-Path $Dir 'python-embed\python.exe'),
         (Join-Path $Dir 'grasshopper\StbGrasshopper.gha')
     )
@@ -105,14 +107,15 @@ New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 Write-Host ""
 Write-Host "Building installer with Inno Setup..."
 Write-Host "  Source: $PayloadDir"
+Write-Host "  Version: $AppVersion"
 Write-Host ""
 
-& $Iscc "/DStbSourceDir=$PayloadDir" "/DOutputDist=$DistDir" "/DBuildStamp=$BuildStamp" $IssFile
+& $Iscc "/DStbSourceDir=$PayloadDir" "/DOutputDist=$DistDir" "/DBuildStamp=$BuildStamp" "/DMyAppVersion=$AppVersion" $IssFile
 if ($LASTEXITCODE -ne 0) {
     throw "ISCC failed with exit code $LASTEXITCODE"
 }
 
-$outFile = Join-Path $DistDir "StructuralToolbox_Setup_$BuildStamp.exe"
+$outFile = Join-Path $DistDir "StructuralToolbox_Setup_${AppVersion}_$BuildStamp.exe"
 Write-Host ""
 Write-Host "Done: $outFile"
 if (Test-Path -LiteralPath $outFile) {

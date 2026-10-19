@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the macOS installer (tar.gz, and on Mac also dmg + pkg).
 
-Windows or Linux produces StructuralToolbox_Mac_Setup_YYYYMMDD.tar.gz.
+Windows or Linux produces StructuralToolbox_Mac_Setup_X.Y.Z_YYYYMMDD.tar.gz.
 On macOS the same command also produces a .dmg and a per-user .pkg.
 """
 
@@ -18,6 +18,9 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import write_manifest  # noqa: E402
 INSTALLER = Path(__file__).resolve().parent
 MAC = INSTALLER / "mac"
 DIST = INSTALLER / "dist"
@@ -52,8 +55,10 @@ SCRIPT_NAMES = {
     "Start Structural Toolbox (debug).command",
     "Uninstall.command",
     "create_launchers.sh",
+    "clean_old_install.sh",
     "インストール.command",
     "postinstall",
+    "preinstall",
 }
 
 ARCHIVES = {
@@ -62,11 +67,12 @@ ARCHIVES = {
 }
 
 PKG_IDENTIFIER = "org.structuraltoolbox.mac"
-PKG_VERSION = "0.1.0"
+# The version comes from the VERSION file at the repository root.
+PKG_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 PKG_INSTALL_LOCATION = "Library/Application Support/StructuralToolbox"
 DISTRIBUTION_XML = f"""<?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-    <title>Structural Toolbox</title>
+    <title>Structural Toolbox {PKG_VERSION}</title>
     <welcome file="welcome.html" mime-type="text/html"/>
     <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
     <domains enable_anywhere="false" enable_currentUserHome="true" enable_localSystem="false"/>
@@ -88,6 +94,10 @@ def read_text(path: Path) -> str:
 def lf_bytes(path: Path) -> bytes:
     data = path.read_bytes()
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
+def welcome_html() -> str:
+    return lf_bytes(MAC / "welcome.html").decode("utf-8").replace("@VERSION@", PKG_VERSION)
 
 
 def download(url: str, dest: Path) -> None:
@@ -196,6 +206,7 @@ def install_scripts(payload: Path) -> None:
         "Start Structural Toolbox (debug).command",
         "Uninstall.command",
         "create_launchers.sh",
+        "clean_old_install.sh",
     ):
         target = payload / name
         target.write_bytes(lf_bytes(MAC / name))
@@ -396,6 +407,7 @@ def verify_payload(payload: Path) -> None:
         payload / "Install_once.command",
         payload / "Start Structural Toolbox.command",
         payload / "create_launchers.sh",
+        payload / "clean_old_install.sh",
         payload / "setup_runtime.py",
         payload / "pyproject.toml",
         payload / "examples" / "cantilever.dat",
@@ -437,10 +449,14 @@ def build_pkg(payload: Path, pkg_path: Path) -> None:
     resources = work / "resources"
     scripts.mkdir(parents=True)
     resources.mkdir(parents=True)
-    postinstall = scripts / "postinstall"
-    postinstall.write_bytes(lf_bytes(MAC / "postinstall"))
-    postinstall.chmod(0o755)
-    shutil.copyfile(MAC / "welcome.html", resources / "welcome.html")
+    for name in ("preinstall", "postinstall"):
+        script = scripts / name
+        script.write_bytes(lf_bytes(MAC / name))
+        script.chmod(0o755)
+    # preinstall removes the previous version before pkg lays down the payload.
+    shutil.copyfile(payload / "clean_old_install.sh", scripts / "clean_old_install.sh")
+    shutil.copyfile(payload / write_manifest.MANIFEST_NAME, scripts / write_manifest.MANIFEST_NAME)
+    (resources / "welcome.html").write_text(welcome_html(), encoding="utf-8")
 
     component = work / "StructuralToolbox-component.pkg"
     subprocess.check_call(
@@ -480,12 +496,13 @@ def build_pkg(payload: Path, pkg_path: Path) -> None:
 def write_mac_packager(script_path: Path, name: str, stamp: str) -> None:
     """Script that turns the tar.gz into .dmg and .pkg on a Mac without the repository.
 
-    postinstall and welcome.html are embedded so the tar.gz and this script are
-    the only files the Mac needs.
+    preinstall, postinstall and welcome.html are embedded so the tar.gz and this
+    script are the only files the Mac needs.
     """
+    preinstall = lf_bytes(MAC / "preinstall").decode("utf-8")
     postinstall = lf_bytes(MAC / "postinstall").decode("utf-8")
-    welcome = lf_bytes(MAC / "welcome.html").decode("utf-8")
-    for text in (postinstall, welcome, DISTRIBUTION_XML):
+    welcome = welcome_html()
+    for text in (preinstall, postinstall, welcome, DISTRIBUTION_XML):
         if "STB_EOF" in text:
             raise SystemExit("heredoc delimiter STB_EOF appears in embedded file")
 
@@ -525,10 +542,14 @@ hdiutil create -volname "Structural Toolbox" -srcfolder "$STAGE" -ov -format UDZ
 
 echo "インストーラパッケージを作成しています..."
 mkdir -p "$WORK/pkg/scripts" "$WORK/pkg/resources"
+cat > "$WORK/pkg/scripts/preinstall" <<'STB_EOF'
+{preinstall.rstrip(chr(10))}
+STB_EOF
 cat > "$WORK/pkg/scripts/postinstall" <<'STB_EOF'
 {postinstall.rstrip(chr(10))}
 STB_EOF
-chmod 755 "$WORK/pkg/scripts/postinstall"
+chmod 755 "$WORK/pkg/scripts/preinstall" "$WORK/pkg/scripts/postinstall"
+cp "$PAYLOAD/clean_old_install.sh" "$PAYLOAD/install_manifest.txt" "$WORK/pkg/scripts/"
 cat > "$WORK/pkg/resources/welcome.html" <<'STB_EOF'
 {welcome.rstrip(chr(10))}
 STB_EOF
@@ -560,13 +581,14 @@ echo "完成: $PKG"
 def main() -> None:
     version = read_text(INSTALLER / "PYTHON_EMBED_VERSION")
     release = read_text(INSTALLER / "PYTHON_MAC_RELEASE")
-    stamp = date.today().strftime("%Y%m%d")
+    stamp = f"{PKG_VERSION}_{date.today().strftime('%Y%m%d')}"
     name = f"StructuralToolbox_Mac_Setup_{stamp}"
     stage = DIST / "_build" / name
     payload = stage / "payload"
     archive_path = DIST / f"{name}.tar.gz"
 
     print(f"Building macOS installer -> {archive_path}")
+    print(f"  Structural Toolbox {PKG_VERSION}")
     print(f"  Python {version} (standalone release {release})")
     pythons = fetch_pythons(version, release)
 
@@ -577,6 +599,8 @@ def main() -> None:
     include_wheels(payload)
     include_grasshopper(payload)
     verify_payload(payload)
+    # Last step: lists every shipped file so later upgrades keep only user models.
+    write_manifest.write(payload)
     (stage / "はじめに.txt").write_bytes(lf_bytes(MAC / "はじめに.txt"))
     (stage / "インストール.command").write_bytes(lf_bytes(MAC / "インストール.command"))
 

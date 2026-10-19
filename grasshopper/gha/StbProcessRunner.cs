@@ -6,6 +6,12 @@ namespace StbGrasshopper
 {
     public static class StbProcessRunner
     {
+        /// <summary>
+        /// Written next to the copied .gha by the first-time setup
+        /// (installer/setup_runtime.py); holds the install folder.
+        /// </summary>
+        internal const string LocationFileName = "StbGrasshopper.location.txt";
+
         public static StbAnalyzeResult Analyze(
             string datPath,
             string pythonExe,
@@ -191,7 +197,15 @@ namespace StbGrasshopper
                 roots.Add(Path.GetFullPath(repoRoot));
             }
 
-            // Install folder used by the Windows and macOS installers.
+            // Install folder recorded by the first-time setup, so a non-default
+            // install location chosen in the installer is found.
+            var recorded = RecordedInstallRoot();
+            if (recorded != null)
+            {
+                roots.Add(recorded);
+            }
+
+            // Default install folder of the Windows and macOS installers.
             var appSupport = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             if (!string.IsNullOrWhiteSpace(appSupport))
             {
@@ -220,6 +234,32 @@ namespace StbGrasshopper
                 }
             }
             return unique.ToArray();
+        }
+
+        private static string RecordedInstallRoot()
+        {
+            try
+            {
+                var here = Path.GetDirectoryName(typeof(StbProcessRunner).Assembly.Location);
+                if (string.IsNullOrWhiteSpace(here))
+                {
+                    return null;
+                }
+
+                var file = Path.Combine(here, LocationFileName);
+                if (!File.Exists(file))
+                {
+                    return null;
+                }
+
+                var root = File.ReadAllText(file).Trim();
+                return string.IsNullOrWhiteSpace(root) ? null : Path.GetFullPath(root);
+            }
+            catch (Exception)
+            {
+                // An unreadable location file only means falling back to the defaults.
+                return null;
+            }
         }
 
         private static string VenvPython(string root)

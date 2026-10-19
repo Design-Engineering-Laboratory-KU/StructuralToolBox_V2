@@ -16,7 +16,8 @@ $InstallerDir = $PSScriptRoot
 $RepoRoot = Split-Path -Parent $InstallerDir
 $DistDir = Join-Path $InstallerDir 'dist'
 $BuildStamp = Get-Date -Format 'yyyyMMdd'
-$Name = "StructuralToolbox_Windows_$BuildStamp"
+$AppVersion = (Get-Content -LiteralPath (Join-Path $RepoRoot 'VERSION') -Raw).Trim()
+$Name = "StructuralToolbox_Windows_${AppVersion}_$BuildStamp"
 $WorkDir = Join-Path $DistDir "_build\$Name"
 $ZipPath = Join-Path $DistDir "$Name.zip"
 $Version = (Get-Content -LiteralPath (Join-Path $InstallerDir 'PYTHON_EMBED_VERSION') -Raw).Trim()
@@ -184,6 +185,13 @@ foreach ($f in @('Install_once.bat', 'Start Structural Toolbox.bat', 'setup_runt
 & py -3 (Join-Path $InstallerDir 'stage_docs.py') windows --payload $WorkDir
 if ($LASTEXITCODE -ne 0) {
     throw 'Failed to stage the guides'
+}
+
+# Last step: the manifest lists every shipped file, so later upgrades can tell
+# shipped examples from models the user saved.
+& py -3 (Join-Path $InstallerDir 'write_manifest.py') --payload $WorkDir
+if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to write install_manifest.txt'
 }
 
 if (-not $SkipZip) {

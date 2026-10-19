@@ -10343,6 +10343,20 @@ function startGuiHeartbeat() {
   });
 }
 
+async function showAppVersion() {
+  const el = document.getElementById("appVersion");
+  if (!el) return;
+  try {
+    const info = await fetchApiJson("/api/version");
+    if (info.version) {
+      el.textContent = "Structural Toolbox v" + info.version;
+      document.title = "Structural Toolbox v" + info.version;
+    }
+  } catch (_) {
+    // Keep the plain product name when the version is unavailable.
+  }
+}
+
 async function initGuiLifecycle() {
   try {
     const cfg = await fetchApiJson("/api/gui-config");
@@ -10379,6 +10393,7 @@ window.addEventListener("pagehide", (ev) => {
 });
 
 initGuiLifecycle();
+showAppVersion();
 
 async function loadSelectedModel(solve, options) {
   options = options || {};

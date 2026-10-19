@@ -47,6 +47,18 @@ case "$ARCH" in
     ;;
 esac
 
+echo "以前のバージョンを確認しています..."
+if ! /bin/bash "$PAYLOAD/clean_old_install.sh" "$DEST" "$PAYLOAD/install_manifest.txt"; then
+  osascript <<'EOF' || true
+display dialog "以前のバージョンを削除できませんでした。
+
+Structural Toolbox と Rhino を終了してから、もう一度「インストール.command」を実行してください。" buttons {"OK"} default button 1 with title "Structural Toolbox"
+EOF
+  echo "[エラー] 以前のバージョンを削除できませんでした。"
+  read -r -p "Enter キーを押すと閉じます... " _
+  exit 1
+fi
+
 mkdir -p "$DEST"
 echo "ファイルをコピーしています..."
 if command -v rsync >/dev/null 2>&1; then

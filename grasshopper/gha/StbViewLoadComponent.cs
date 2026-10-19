@@ -26,6 +26,8 @@ namespace StbGrasshopper
         private readonly List<LoadLabel> _labels = new List<LoadLabel>();
         private BoundingBox _clippingBox = BoundingBox.Empty;
         private bool _showValues = true;
+        private int _textSize = StbPreviewStyle.DefaultTextSize;
+        private double _arrowSize = StbPreviewStyle.DefaultArrowSize;
 
         public StbViewLoadComponent()
             : base(
@@ -48,6 +50,8 @@ namespace StbGrasshopper
             pManager.AddIntegerParameter("Load Case", "LC", "Load case to display. Negative means all. A combination LC shows its factored load cases.", GH_ParamAccess.item, -1);
             pManager.AddNumberParameter("Scale", "S", "Length of the largest arrow of each load kind in model units. 0 = automatic.", GH_ParamAccess.item, 0.0);
             pManager.AddBooleanParameter("Values", "V", "Show load values in the Rhino viewport.", GH_ParamAccess.item, true);
+            pManager.AddIntegerParameter("Text Size", "TS", StbPreviewStyle.TextSizeDescription, GH_ParamAccess.item, StbPreviewStyle.DefaultTextSize);
+            pManager.AddNumberParameter("Arrow Size", "AS", StbPreviewStyle.ArrowSizeDescription, GH_ParamAccess.item, StbPreviewStyle.DefaultArrowSize);
             pManager[0].Optional = true;
             pManager[1].Optional = true;
         }
@@ -84,6 +88,8 @@ namespace StbGrasshopper
             da.GetData(3, ref scale);
             da.GetData(4, ref showValues);
             _showValues = showValues;
+            _textSize = StbPreviewStyle.ReadTextSize(da, 5, this);
+            _arrowSize = StbPreviewStyle.ReadArrowSize(da, 6, this);
 
             var loads = new List<StbLoadModel>();
             if (model != null)
@@ -174,15 +180,11 @@ namespace StbGrasshopper
             {
                 if (arrow.IsMoment)
                 {
-                    var direction = arrow.Line.Direction;
-                    direction.Unitize();
-                    args.Display.DrawLine(arrow.Line, arrow.Color, 2);
-                    args.Display.DrawArrowHead(arrow.Line.To, direction, arrow.Color, 0.0, arrow.HeadSize);
-                    args.Display.DrawArrowHead(arrow.Line.To - direction * arrow.HeadSize * 0.6, direction, arrow.Color, 0.0, arrow.HeadSize);
+                    StbPreviewStyle.DrawMomentArrow(args.Display, arrow.Line, arrow.Color, arrow.HeadSize, _arrowSize);
                 }
                 else
                 {
-                    args.Display.DrawArrow(arrow.Line, arrow.Color);
+                    StbPreviewStyle.DrawArrow(args.Display, arrow.Line, arrow.Color, _arrowSize);
                 }
             }
 
@@ -193,7 +195,7 @@ namespace StbGrasshopper
 
             foreach (var label in _labels)
             {
-                args.Display.Draw2dText(label.Text, label.Color, label.Point, true, 14);
+                StbPreviewStyle.DrawText(args.Display, label.Text, label.Color, label.Point, _textSize);
             }
         }
 

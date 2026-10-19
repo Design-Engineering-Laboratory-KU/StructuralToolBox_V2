@@ -23,6 +23,11 @@ LOG_PATH = ROOT / "install.log"
 
 IS_WINDOWS = os.name == "nt"
 
+# Files inside the install reach about 130 characters below its folder, and
+# Windows cannot load DLLs whose full path exceeds 260 characters (shapely,
+# scipy). Keep in sync with MaxInstallDirLength in StructuralToolbox.iss.
+MAX_INSTALL_DIR_LENGTH = 100
+
 
 class Failure(Exception):
     """Setup cannot continue; the message is shown to the user."""
@@ -80,6 +85,17 @@ def run(cmd: list[str], step: str, silent: bool) -> None:
     if result.returncode != 0:
         log("exit code: " + str(result.returncode))
         raise Failure(step)
+
+
+def check_install_dir() -> None:
+    if IS_WINDOWS and len(str(ROOT)) > MAX_INSTALL_DIR_LENGTH:
+        raise Failure(
+            "インストール先のフォルダのパスが長すぎます（"
+            + str(len(str(ROOT)))
+            + " 文字）。"
+            + str(MAX_INSTALL_DIR_LENGTH)
+            + " 文字以内の場所（例: C:\\Users\\<名前>\\StructuralToolbox）に置き直してください。"
+        )
 
 
 def bundled_python() -> Path:
@@ -225,6 +241,9 @@ def verify(silent: bool) -> None:
 
 
 GRASSHOPPER_PLUGIN_FOLDER = "Grasshopper (b45a29b1-4343-4035-989e-044e8580d9cf)"
+# Written next to the copied .gha so the plugin finds this install even when it
+# is not in the default folder. Keep in sync with StbProcessRunner.LocationFileName.
+GRASSHOPPER_LOCATION_FILE = "StbGrasshopper.location.txt"
 
 
 def grasshopper_libraries() -> list:
@@ -254,6 +273,7 @@ def install_grasshopper_plugin() -> None:
         try:
             libraries.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(plugin, target)
+            (libraries / GRASSHOPPER_LOCATION_FILE).write_text(str(ROOT) + "\n", encoding="utf-8")
         except OSError as ex:
             out("[警告] Grasshopper プラグインのコピーに失敗しました。Rhino を終了してから、もう一度実行してください。")
             log("Grasshopper copy failed: " + str(target) + ": " + str(ex))
@@ -281,6 +301,7 @@ def main() -> int:
     out("")
 
     try:
+        check_install_dir()
         python = bundled_python()
         out("使用する Python（同梱）: " + str(python))
         pip_args, offline = pip_source()

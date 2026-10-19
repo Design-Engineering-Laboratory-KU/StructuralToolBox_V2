@@ -649,6 +649,15 @@ class TestGuiApi(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json()["ok"])
 
+    def test_api_version_matches_version_file(self):
+        if self.client == None:
+            self.skipTest("fastapi not installed")
+        from stb_engine.version import __version__
+
+        r = self.client.get("/api/version")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["version"], __version__)
+
     def test_api_gui_config_default(self):
         if self.client == None:
             self.skipTest("fastapi not installed")

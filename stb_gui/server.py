@@ -90,7 +90,9 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
             "Install with: pip install -e \".[gui]\""
         )
 
-    app = FastAPI(title="Structural Toolbox", version="0.1.0")
+    from stb_engine.version import __version__ as stb_version
+
+    app = FastAPI(title="Structural Toolbox", version=stb_version)
 
     def _raise_os_error(ex: OSError) -> None:
         msg = str(ex)
@@ -436,6 +438,10 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         except OSError as ex:
             raise HTTPException(status_code=500, detail=str(ex))
         return JSONResponse({"ok": True, "path": rel})
+
+    @app.get("/api/version")
+    def api_version():
+        return JSONResponse({"version": stb_version})
 
     @app.get("/api/gui-config")
     def api_gui_config():

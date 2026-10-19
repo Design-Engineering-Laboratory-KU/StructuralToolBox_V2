@@ -27,7 +27,9 @@ class TestStbCli(unittest.TestCase):
     def test_version(self):
         r = _run_stb(["version"])
         self.assertEqual(r.returncode, 0)
-        self.assertTrue("stb 0.1.0" in r.stdout)
+        from stb_engine.version import __version__
+
+        self.assertTrue("stb " + __version__ in r.stdout)
 
     def test_validate_input01(self):
         r = _run_stb(["validate", _data_path("input01.dat"), "-v"])

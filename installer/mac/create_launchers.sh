@@ -3,6 +3,8 @@
 set -u
 
 DEST="$HOME/Library/Application Support/StructuralToolbox"
+APP_VERSION="$(tr -d '[:space:]' 2>/dev/null < "$DEST/VERSION" || true)"
+APP_VERSION="${APP_VERSION:-0.0.0}"
 APPS="$HOME/Applications"
 mkdir -p "$APPS"
 
@@ -30,9 +32,9 @@ write_app() {
   <key>CFBundleIdentifier</key>
   <string>${bundle_id}</string>
   <key>CFBundleVersion</key>
-  <string>0.1.0</string>
+  <string>${APP_VERSION}</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>${APP_VERSION}</string>
   <key>CFBundleExecutable</key>
   <string>${exe}</string>
   <key>CFBundlePackageType</key>

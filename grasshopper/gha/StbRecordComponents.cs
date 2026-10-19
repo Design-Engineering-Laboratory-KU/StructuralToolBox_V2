@@ -469,7 +469,7 @@ namespace StbGrasshopper
 
     public sealed class StbLoadComponent : GH_Component
     {
-        public StbLoadComponent() : base("STb Load", "STb Load", "Create STb point load objects from points.", StbCategories.Tab, StbCategories.Load) { }
+        public StbLoadComponent() : base("STb Point Load", "STb PLoad", "Create STb point load objects from points.", StbCategories.Tab, StbCategories.Load) { }
         public override Guid ComponentGuid => new Guid("fcf0fb0e-33d0-4926-a09f-1f1bbffcfbc1");
 
         protected override Bitmap Icon => StbIcons.PointLoad;
@@ -522,7 +522,7 @@ namespace StbGrasshopper
 
         public StbLineLoadComponent()
             : base(
-                "STb Load",
+                "STb Line Load",
                 "STb LLoad",
                 "Create an STb distributed load on a frame element. Choose Linear, Partial, Triangle, or Trapezoid from the drop-down.",
                 StbCategories.Tab,
@@ -778,7 +778,7 @@ namespace StbGrasshopper
     {
         public StbAreaLoadComponent()
             : base(
-                "STb Load",
+                "STb Area Load",
                 "STb ALoad",
                 "Create an STb area load bounded by three or four frame elements.",
                 StbCategories.Tab,

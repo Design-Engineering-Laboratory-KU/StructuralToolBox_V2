@@ -7,7 +7,7 @@ namespace StbGrasshopper
     public sealed class StbLoadContainerComponent : GH_Component
     {
         public StbLoadContainerComponent()
-            : base("STb Load Container", "STb Load", "Collect STb loads into one typed list.", StbCategories.Tab, StbCategories.Param) { }
+            : base("STb Load Container", "STb LdCont", "Collect STb loads into one typed list.", StbCategories.Tab, StbCategories.Param) { }
 
         public override Guid ComponentGuid => new Guid("f4b6e6b9-7d4d-4b31-8f7c-1d0e5d9a6c01");
         protected override System.Drawing.Bitmap Icon => StbIcons.LoadContainer;

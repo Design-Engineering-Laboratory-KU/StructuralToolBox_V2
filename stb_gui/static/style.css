@@ -32,6 +32,12 @@ html, body {
   gap: 0.35rem;
 }
 
+#toolbar .app-version {
+  font-weight: 600;
+  white-space: nowrap;
+  color: #ddd;
+}
+
 #toolbar .model-path {
   max-width: min(28vw, 320px);
   overflow: hidden;
@@ -1066,6 +1072,10 @@ html[data-theme="light"] body {
 html[data-theme="light"] #toolbar {
   background: #ffffff;
   border-bottom-color: #d8e0ee;
+}
+
+html[data-theme="light"] #toolbar .app-version {
+  color: #1f2937;
 }
 
 html[data-theme="light"] #toolbar .model-path,

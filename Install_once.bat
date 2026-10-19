@@ -19,11 +19,13 @@ if not exist "%PY%" (
     exit /b 1
 )
 
-if /i "%~1"=="/silent" (
-    "%PY%" "%~dp0setup_runtime.py" --silent
-    exit /b %ERRORLEVEL%
-)
+REM No parenthesized block here: %ERRORLEVEL% inside one is expanded before the
+REM command runs, so a failed setup would be reported to the installer as success.
+if /i not "%~1"=="/silent" goto interactive
+"%PY%" "%~dp0setup_runtime.py" --silent
+exit /b %ERRORLEVEL%
 
+:interactive
 "%PY%" "%~dp0setup_runtime.py"
 set "RC=%ERRORLEVEL%"
 echo.
