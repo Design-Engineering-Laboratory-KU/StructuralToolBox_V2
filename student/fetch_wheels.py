@@ -120,7 +120,11 @@ def download_pure(dest: Path, requirements: list[str], py_version: str) -> None:
 
 def build(target: str, py_version: str) -> Path:
     dest = CACHE / target
-    dest.mkdir(parents=True, exist_ok=True)
+    # pip download never removes superseded versions, so start empty to bundle
+    # only the versions resolved by this build.
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
 
     requirements = list(RUNTIME)
     if target == "windows":
