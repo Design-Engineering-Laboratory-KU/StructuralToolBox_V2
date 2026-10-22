@@ -14,6 +14,8 @@ namespace StbGrasshopper
 {
     public sealed class StbDeformedShapeComponent : GH_Component
     {
+        private const int CurveDivisions = 12;
+        private const double MetresToMillimetres = 1000.0;
         private readonly List<DeformedSegment> _segments = new List<DeformedSegment>();
         private BoundingBox _clippingBox = BoundingBox.Empty;
         private double _scale = 1.0;
@@ -27,12 +29,13 @@ namespace StbGrasshopper
                 "STB Deformed Shape",
                 "STB Def",
                 "Create deformed points and member line segments from STB results.",
-                "STB",
-                "Results")
+                StbCategories.Tab,
+                StbCategories.Post)
         {
         }
 
         public override Guid ComponentGuid => new Guid("da5d7290-dd2e-4e49-a21a-db2420f7f59a");
+        public override GH_Exposure Exposure => GH_Exposure.secondary;
 
         protected override Bitmap Icon => StbIcons.DeformedShape;
 
@@ -54,8 +57,9 @@ namespace StbGrasshopper
         {
             pManager.AddPointParameter("Initial Points", "Pi", "Original node points.", GH_ParamAccess.list);
             pManager.AddPointParameter("Deformed Points", "Pd", "Deformed node points.", GH_ParamAccess.list);
-            pManager.AddLineParameter("Deformed Lines", "Ld", "Deformed member line segments.", GH_ParamAccess.list);
+            pManager.AddLineParameter("Deformed Lines", "Ld", "Deformed member chords (straight line between the deformed end nodes).", GH_ParamAccess.list);
             pManager.AddIntegerParameter("Node IDs", "N", "Node ids for deformed points.", GH_ParamAccess.list);
+            pManager.AddCurveParameter("Deformed Curves", "Cd", "Deformed member axes interpolated from nodal translations and rotations.", GH_ParamAccess.list);
         }
 
         protected override void SolveInstance(IGH_DataAccess da)
@@ -83,7 +87,7 @@ namespace StbGrasshopper
                 return;
             }
 
-            var translationById = BuildTranslationLookup(results, loadCase);
+            var translationById = BuildTranslationLookup(results, loadCase, out var rotationById);
             if (loadCase >= 0 && translationById.Count == 0)
             {
                 AddRuntimeMessage(
@@ -91,31 +95,61 @@ namespace StbGrasshopper
                     "No displacement rows found for load case " + loadCase + ".");
             }
 
-            var deformedById = new Dictionary<int, Point3d>();
+            var pointById = new Dictionary<int, Point3d>();
             var initialPoints = new List<Point3d>();
             var deformedPoints = new List<Point3d>();
             var nodeIds = new List<int>();
-            var displacementById = new Dictionary<int, double>();
 
             foreach (var node in results.Nodes)
             {
                 translationById.TryGetValue(node.NodeId, out var translation);
-                var displacement = translation.Length;
                 var deformed = node.Point + translation * _scale;
-                deformedById[node.NodeId] = deformed;
-                displacementById[node.NodeId] = displacement;
+                pointById[node.NodeId] = node.Point;
                 initialPoints.Add(node.Point);
                 deformedPoints.Add(deformed);
                 nodeIds.Add(node.NodeId);
-                _legendMaximum = Math.Max(_legendMaximum, displacement);
+                _legendMaximum = Math.Max(_legendMaximum, translation.Length);
                 _clippingBox.Union(node.Point);
                 _clippingBox.Union(deformed);
             }
 
-            var deformedLines = BuildDeformedLines(deformedById, displacementById, results.Elements);
-            foreach (var segment in deformedLines)
+            var outputLines = new List<Line>();
+            var outputCurves = new List<Polyline>();
+            foreach (var element in results.Elements)
             {
-                _segments.Add(segment);
+                if (!pointById.TryGetValue(element.NodeI, out var p0) || !pointById.TryGetValue(element.NodeJ, out var p1))
+                {
+                    continue;
+                }
+
+                translationById.TryGetValue(element.NodeI, out var d0);
+                translationById.TryGetValue(element.NodeJ, out var d1);
+                rotationById.TryGetValue(element.NodeI, out var r0);
+                rotationById.TryGetValue(element.NodeJ, out var r1);
+
+                var curve = new Polyline(CurveDivisions + 1);
+                var previous = Point3d.Unset;
+                var previousDisplacement = 0.0;
+                for (var k = 0; k <= CurveDivisions; k++)
+                {
+                    var t = (double)k / CurveDivisions;
+                    var u = MemberDisplacement(p0, p1, d0, d1, r0, r1, t);
+                    var point = p0 + (p1 - p0) * t + u * _scale;
+                    var displacement = u.Length;
+                    curve.Add(point);
+                    _legendMaximum = Math.Max(_legendMaximum, displacement);
+                    _clippingBox.Union(point);
+                    if (k > 0)
+                    {
+                        _segments.Add(new DeformedSegment(new Line(previous, point), 0.5 * (previousDisplacement + displacement)));
+                    }
+
+                    previous = point;
+                    previousDisplacement = displacement;
+                }
+
+                outputLines.Add(new Line(curve[0], curve[curve.Count - 1]));
+                outputCurves.Add(curve);
             }
 
             if (_legendMaximum <= 0.0)
@@ -123,16 +157,42 @@ namespace StbGrasshopper
                 _legendMaximum = 1.0;
             }
 
-            var outputLines = new List<Line>();
-            foreach (var segment in _segments)
-            {
-                outputLines.Add(segment.Line);
-            }
-
             da.SetDataList(0, initialPoints);
             da.SetDataList(1, deformedPoints);
             da.SetDataList(2, outputLines);
             da.SetDataList(3, nodeIds);
+            da.SetDataList(4, outputCurves);
+        }
+
+        /// <summary>
+        /// Displacement of the member axis at t in [0, 1]: linear along the axis,
+        /// cubic Hermite across it with end slopes θ × e taken from the nodal
+        /// rotations. Deflection caused by loads between the nodes is not included.
+        /// </summary>
+        private static Vector3d MemberDisplacement(Point3d p0, Point3d p1, Vector3d d0, Vector3d d1, Vector3d r0, Vector3d r1, double t)
+        {
+            var axis = p1 - p0;
+            var length = axis.Length;
+            if (length <= 0.0)
+            {
+                return d0 * (1.0 - t) + d1 * t;
+            }
+
+            axis /= length;
+            var a0 = d0 * axis;
+            var a1 = d1 * axis;
+            var v0 = d0 - axis * a0;
+            var v1 = d1 - axis * a1;
+            var s0 = Vector3d.CrossProduct(r0, axis);
+            var s1 = Vector3d.CrossProduct(r1, axis);
+
+            var t2 = t * t;
+            var t3 = t2 * t;
+            var h1 = 1.0 - 3.0 * t2 + 2.0 * t3;
+            var h2 = t - 2.0 * t2 + t3;
+            var h3 = 3.0 * t2 - 2.0 * t3;
+            var h4 = t3 - t2;
+            return axis * (a0 * (1.0 - t) + a1 * t) + v0 * h1 + s0 * (h2 * length) + v1 * h3 + s1 * (h4 * length);
         }
 
         internal double Scale => _scale;
@@ -184,56 +244,22 @@ namespace StbGrasshopper
         {
             foreach (var segment in _segments)
             {
-                args.Display.DrawLine(segment.Line, DisplacementColor(segment.Displacement / _legendMaximum), 3);
+                args.Display.DrawLine(segment.Line, StbLegend.ColorFor(segment.Displacement / _legendMaximum), 3);
             }
 
             if (_showLegend && _segments.Count > 0)
             {
-                DrawLegend(args);
+                StbLegend.Draw(args, "Displacement [mm]", _legendMaximum * MetresToMillimetres);
             }
         }
 
-        private void DrawLegend(IGH_PreviewArgs args)
-        {
-            const int width = 175;
-            const int barXOffset = 14;
-            const int barYOffset = 38;
-            const int barWidth = 24;
-            const int barHeight = 250;
-            const int steps = 7;
-            const int legendHeight = barYOffset + barHeight;
-            var textColor = Color.FromArgb(55, 60, 65);
-            var viewport = args.Viewport.Bounds;
-            var left = Math.Max(viewport.Left + 8, viewport.Right - width - 18);
-            var top = Math.Max(viewport.Top + 8, viewport.Top + (viewport.Height - legendHeight) / 2);
-
-            args.Display.Draw2dText("Displacement [model units]", textColor, new Point2d(left + 10, top + 11), false, 14);
-            for (var i = 0; i < steps; i++)
-            {
-                var normalized = 1.0 - (double)i / (steps - 1);
-                var y0 = top + barYOffset + i * barHeight / steps;
-                var y1 = top + barYOffset + (i + 1) * barHeight / steps;
-                args.Display.Draw2dRectangle(
-                    new Rectangle(left + barXOffset, y0, barWidth, Math.Max(1, y1 - y0 + 1)),
-                    DisplacementColor(normalized), 0, DisplacementColor(normalized));
-            }
-
-            for (var i = 0; i <= steps; i++)
-            {
-                var normalized = (double)i / steps;
-                var value = _legendMaximum * (1.0 - normalized);
-                DrawLegendValue(args, left + 48, top + barYOffset + i * barHeight / steps - 5, value, textColor);
-            }
-        }
-
-        private static void DrawLegendValue(IGH_PreviewArgs args, int x, int y, double value, Color textColor)
-        {
-            args.Display.Draw2dText(value.ToString("0.###", CultureInfo.InvariantCulture), textColor, new Point2d(x, y), false, 14);
-        }
-
-        private static Dictionary<int, Vector3d> BuildTranslationLookup(StbParsedResults results, int loadCase)
+        private static Dictionary<int, Vector3d> BuildTranslationLookup(
+            StbParsedResults results,
+            int loadCase,
+            out Dictionary<int, Vector3d> rotationById)
         {
             var translationById = new Dictionary<int, Vector3d>();
+            rotationById = new Dictionary<int, Vector3d>();
 
             foreach (var row in results.Displacements)
             {
@@ -243,52 +269,10 @@ namespace StbGrasshopper
                 }
 
                 translationById[row.NodeId] = new Vector3d(row.X, row.Y, row.Z);
+                rotationById[row.NodeId] = new Vector3d(row.ThetaX, row.ThetaY, row.ThetaZ);
             }
 
             return translationById;
-        }
-
-        private static List<DeformedSegment> BuildDeformedLines(
-            Dictionary<int, Point3d> deformedById,
-            Dictionary<int, double> displacementById,
-            List<StbElementGeometry> elements)
-        {
-            var lines = new List<DeformedSegment>();
-
-            foreach (var element in elements)
-            {
-                if (!deformedById.TryGetValue(element.NodeI, out var p0))
-                {
-                    continue;
-                }
-
-                if (!deformedById.TryGetValue(element.NodeJ, out var p1))
-                {
-                    continue;
-                }
-
-                var displacement = 0.5 * (displacementById[element.NodeI] + displacementById[element.NodeJ]);
-                lines.Add(new DeformedSegment(new Line(p0, p1), displacement));
-            }
-
-            return lines;
-        }
-
-        private static Color DisplacementColor(double normalized)
-        {
-            var t = Math.Max(0.0, Math.Min(1.0, normalized));
-            if (t <= 0.25) return Blend(Color.FromArgb(35, 70, 180), Color.FromArgb(0, 190, 220), t / 0.25);
-            if (t <= 0.5) return Blend(Color.FromArgb(0, 190, 220), Color.FromArgb(35, 170, 90), (t - 0.25) / 0.25);
-            if (t <= 0.75) return Blend(Color.FromArgb(35, 170, 90), Color.FromArgb(245, 220, 40), (t - 0.5) / 0.25);
-            return Blend(Color.FromArgb(245, 220, 40), Color.FromArgb(215, 35, 35), (t - 0.75) / 0.25);
-        }
-
-        private static Color Blend(Color start, Color end, double t)
-        {
-            return Color.FromArgb(
-                (int)Math.Round(start.R + (end.R - start.R) * t),
-                (int)Math.Round(start.G + (end.G - start.G) * t),
-                (int)Math.Round(start.B + (end.B - start.B) * t));
         }
 
         private sealed class DeformedSegment

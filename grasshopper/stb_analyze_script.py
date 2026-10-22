@@ -58,10 +58,34 @@ def default_output_path(dat_path: str) -> str:
     return os.path.join(out_dir, base + ".out")
 
 
+LOCATION_FILE = "StbGrasshopper.location.txt"
+
+
+def recorded_install_roots() -> List[str]:
+    """Install folders the first-time setup wrote next to the copied .gha."""
+    libraries = []
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        libraries.append(os.path.join(appdata, "Grasshopper", "Libraries"))
+    libraries.append(os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Grasshopper", "Libraries"))
+
+    roots = []
+    for folder in libraries:
+        try:
+            with open(os.path.join(folder, LOCATION_FILE), encoding="utf-8") as handle:
+                root = handle.read().strip()
+        except OSError:
+            continue
+        if root:
+            roots.append(os.path.abspath(root))
+    return roots
+
+
 def candidate_roots(repo_root: Optional[str]) -> List[str]:
     roots = []
     if repo_root:
         roots.append(os.path.abspath(repo_root))
+    roots.extend(recorded_install_roots())
     local = os.environ.get("LOCALAPPDATA")
     if local:
         roots.append(os.path.join(local, "StructuralToolbox"))

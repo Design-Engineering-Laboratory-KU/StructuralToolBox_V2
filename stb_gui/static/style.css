@@ -32,6 +32,12 @@ html, body {
   gap: 0.35rem;
 }
 
+#toolbar .app-version {
+  font-weight: 600;
+  white-space: nowrap;
+  color: #ddd;
+}
+
 #toolbar .model-path {
   max-width: min(28vw, 320px);
   overflow: hidden;
@@ -72,6 +78,20 @@ html, body {
 #toolbar button.btn-secondary.active {
   background: #5a6a88;
   color: #fff;
+}
+
+html[data-gui-mode="simple"] .advanced-only {
+  display: none !important;
+}
+
+#toolbar button#btnGuiMode {
+  background: #2f6f4f;
+  color: #fff;
+  font-weight: 600;
+}
+
+#toolbar button#btnGuiMode.advanced {
+  background: #8a4b16;
 }
 
 #toolbar button#btnToggleSelect.active {
@@ -936,6 +956,10 @@ select.context-menu-input {
   gap: 0.45rem;
 }
 
+.panel-check-inline > span {
+  white-space: nowrap;
+}
+
 .panel-check-inline select {
   flex: 1 1 auto;
   min-width: 0;
@@ -1048,6 +1072,10 @@ html[data-theme="light"] body {
 html[data-theme="light"] #toolbar {
   background: #ffffff;
   border-bottom-color: #d8e0ee;
+}
+
+html[data-theme="light"] #toolbar .app-version {
+  color: #1f2937;
 }
 
 html[data-theme="light"] #toolbar .model-path,

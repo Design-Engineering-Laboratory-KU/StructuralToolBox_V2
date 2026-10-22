@@ -6,7 +6,7 @@ from ejnt import EJnt
 from mat  import Mat
 from sec  import Sec
 from cons import Cons
-from ld   import PLd, ELd, ALd, GLd, Lcase, Lcmb
+from ld   import PLd, ELd, ALd, GLd, Lcase, Lcmb, diagram_wsegs
 from mdl  import Mdl
 from axis import Axis
 from plt  import Plt 
@@ -397,7 +397,20 @@ def ReadLines(_lns):
             wyj  = float(items[8]) * 1e3 # [kN/m] --> [N/m]
             wzj  = float(items[9]) * 1e3 # [kN/m] --> [N/m]
 
-            elds.append(ELd(eid, lc, isGlobal, wxi, wyi, wzi, wxj, wyj, wzj)) 
+            # optional load range T0, T1 (both or neither; empty = missing)
+            try:
+                t0 = _opt_float(items, 10)
+                t1 = _opt_float(items, 11)
+            except ValueError:
+                raise ValueError(
+                    "ELOD on ELEM {0}: T0, T1 must be numbers".format(eid)) from None
+            if (t0 is None) != (t1 is None):
+                raise ValueError(
+                    "ELOD on ELEM {0}: T0 and T1 must be given together".format(eid))
+            if t0 is None:
+                t0, t1 = 0.0, 1.0
+
+            elds.append(ELd(eid, lc, isGlobal, wxi, wyi, wzi, wxj, wyj, wzj, False, t0, t1)) 
 
         elif key == "ALOD":
 
@@ -738,6 +751,8 @@ def RegisterInputData(_mdl: Mdl):
     lns += "#    ELEM ID,   LC,  E/G,    WXi,    WYi,    WZi,    WXj,    WYj,    WZj\n"
     lns += "#                          (kN/m)  (kN/m)  (kN/m)  (kN/m)  (kN/m)  (kN/m)\n"
     lns += "#   (E/G: Element(=0) or Global(=1) Coordinate System)\n"
+    if any(el.is_partial for el in elds):
+        lns += "#   (optional T0, T1: load range along the member, 0 at node i, 1 at node j)\n"
     for el in elds:
         lns += el.OutputELdInfo()
     
@@ -934,6 +949,27 @@ def RegisterResultData(_mdl: Mdl):
             lns += ','.join(props) + "\n"
 
     lns += "\n"
+
+    ## element load segments (local axes, diagram convention)
+    # The block is written only when at least one member carries a line load,
+    # so outputs of models without member loads stay unchanged.
+    ewld_rows = ""
+    for lc in lcs:
+        clc = model_lcs.index(lc)
+        for e in elms:
+            for seg in diagram_wsegs(e, clc):
+                props = ["EWLD",
+                         "{: >6}".format(lc),
+                         "{: >6}".format(e.id)]
+                props += ["{:10.3e}".format(v) for v in seg]
+                ewld_rows += ','.join(props) + "\n"
+
+    if ewld_rows:
+        lns += "# --- ELEMENT LOAD SEGMENT (local axes, diagram convention) ---\n"
+        lns += "#        LC,  ELEM,        T0,        T1,       WXi,       WYi,       WZi,       WXj,       WYj,       WZj\n"
+        lns += "#                          (-)        (-)    (kN/m)    (kN/m)    (kN/m)    (kN/m)    (kN/m)    (kN/m)\n"
+        lns += ewld_rows
+        lns += "\n"
 
     ## membrane element strains, stresses and membrane forces
     if model_dmems:

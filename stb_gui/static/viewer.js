@@ -3,6 +3,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { attachI18n } from "./i18n.js";
+import { forceSegments, sampleStations, sectionForceAt } from "./section_forces.js";
 
 const COLORS = {
   background: 0xe1dee4,
@@ -67,6 +69,8 @@ const ALPHA = {
 
 const OPTIONS_STORAGE_KEY = "stb_gui_options";
 const THEME_STORAGE_KEY = "stb_gui_theme";
+const GUI_MODE_STORAGE_KEY = "stb_gui_mode";
+let guiMode = "simple";
 const RESULTS_DISPLAY_STORAGE_KEY = "stb_gui_results_display";
 const MODEL_STORAGE_KEY = "stb_gui_last_model";
 const WRW_CREATE_MODEL_KEY = "stb_gui_wwll_create_model";
@@ -241,7 +245,8 @@ const el = {
   optionsPanelHeader: document.getElementById("optionsPanelHeader"),
   btnOptionsCollapse: document.getElementById("btnOptionsCollapse"),
   btnToggleOptions: document.getElementById("btnToggleOptions"),
-  btnTheme: document.getElementById("btnTheme"),
+  optTheme: document.getElementById("optTheme"),
+  btnGuiMode: document.getElementById("btnGuiMode"),
   btnViewProjection: document.getElementById("btnViewProjection"),
   viewPreset: document.getElementById("viewPreset"),
   btnToggleAxes: document.getElementById("btnToggleAxes"),
@@ -712,8 +717,10 @@ function hasPickTargetFilter() {
 }
 
 function isPickTargetEnabled(mode) {
+  const m = normalizePickSubMode(mode);
+  if ((m === "diaphragm" || m === "wall") && !isAdvancedGui()) return false;
   if (!hasPickTargetFilter()) return true;
-  return pickSubModes.has(normalizePickSubMode(mode));
+  return pickSubModes.has(m);
 }
 
 function loadPickSubMode() {
@@ -744,6 +751,7 @@ function savePickSubMode() {
 
 function togglePickSubMode(mode) {
   const next = normalizePickSubMode(mode);
+  if ((next === "diaphragm" || next === "wall") && !isAdvancedGui()) return;
   const updated = new Set(pickSubModes);
   if (updated.has(next)) updated.delete(next);
   else updated.add(next);
@@ -757,15 +765,22 @@ function pickModeTitle() {
   const labels = [];
   if (pickSubModes.has("node")) labels.push("Nodes");
   if (pickSubModes.has("member")) labels.push("Members");
-  if (pickSubModes.has("diaphragm")) labels.push("Diaphragm");
-  if (pickSubModes.has("wall")) labels.push("Wall");
+  if (pickSubModes.has("diaphragm") && isAdvancedGui()) labels.push("Diaphragm");
+  if (pickSubModes.has("wall") && isAdvancedGui()) labels.push("Wall");
+  if (labels.length === 0) return "Pick — All";
   return "Pick — " + labels.join(" + ");
 }
 
 function pickModeHintText() {
-  const filter = hasPickTargetFilter()
-    ? "Filtered: " + Array.from(pickSubModes).join(", ") + "."
-    : "All targets (Nodes, Members, Diaphragm, Wall).";
+  const active = Array.from(pickSubModes).filter((m) => isPickTargetEnabled(m));
+  let filter;
+  if (active.length > 0) {
+    filter = "Filtered: " + active.join(", ") + ".";
+  } else {
+    filter = isAdvancedGui()
+      ? "All targets (Nodes, Members, Diaphragm, Wall)."
+      : "All targets (Nodes, Members).";
+  }
   return filter + " Toggle Pick target buttons to filter. Click or drag to pick. Shift+click adds. Ctrl+click removes. Right-click = menu. Esc clears.";
 }
 
@@ -1329,7 +1344,7 @@ function woodWallScreenVerts(wall, nm, display) {
 }
 
 function pickMembraneAtScreen(px, py, thresholdPx) {
-  if (!currentModel || !(el.chkMembrane && el.chkMembrane.checked)) return null;
+  if (!currentModel || !membraneShown()) return null;
   const display = getSceneDisplayState();
   const nm = nodeMap(currentModel);
   let bestId = null;
@@ -1355,7 +1370,7 @@ function pickMembraneAtScreen(px, py, thresholdPx) {
 }
 
 function pickWoodWallAtScreen(px, py, thresholdPx) {
-  if (!currentModel || !(el.chkWoodWall && el.chkWoodWall.checked)) return null;
+  if (!currentModel || !woodWallShown()) return null;
   const display = getSceneDisplayState();
   const nm = nodeMap(currentModel);
   let bestId = null;
@@ -1378,7 +1393,7 @@ function pickWoodWallAtScreen(px, py, thresholdPx) {
 
 function membranesInScreenRect(x0, y0, x1, y1, windowMode) {
   const ids = [];
-  if (!currentModel || !(el.chkMembrane && el.chkMembrane.checked)) return ids;
+  if (!currentModel || !membraneShown()) return ids;
   const display = getSceneDisplayState();
   const nm = nodeMap(currentModel);
   for (const mem of currentModel.membrane_elements || []) {
@@ -1395,7 +1410,7 @@ function membranesInScreenRect(x0, y0, x1, y1, windowMode) {
 
 function woodWallsInScreenRect(x0, y0, x1, y1, windowMode) {
   const ids = [];
-  if (!currentModel || !(el.chkWoodWall && el.chkWoodWall.checked)) return ids;
+  if (!currentModel || !woodWallShown()) return ids;
   const display = getSceneDisplayState();
   const nm = nodeMap(currentModel);
   for (const wall of currentModel.wood_rated_walls || []) {
@@ -3355,7 +3370,7 @@ function initContextMenu() {
         return;
       }
       const model = getPickWrwCreateModel();
-      const diapRaw = el.contextMenuWrwCreateDiap ? el.contextMenuWrwCreateDiap.value : "";
+      const diapRaw = el.contextMenuWrwCreateDiap && isAdvancedGui() ? el.contextMenuWrwCreateDiap.value : "";
       const modelLabel = wwllModelLabelFromCode(model);
       const ids = selectedNodeIdList();
       const diapText = diapRaw ? ("DIAP " + diapRaw) : "no DIAP tie";
@@ -3571,7 +3586,7 @@ function updateViewerInfoOverlay(model) {
     displayLines.push("input loads (" + loadTypeFilterValue() + ")");
     if (el.chkLoadValues.checked) displayLines.push("load values");
   }
-  if (el.chkWindLoads && el.chkWindLoads.checked && windVisualData) {
+  if (windLoadsShown() && windVisualData) {
     const wc = windCaseById(windVisualData, selectedWindCaseId);
     if (wc) {
       displayLines.push(
@@ -3579,7 +3594,7 @@ function updateViewerInfoOverlay(model) {
       );
     }
   }
-  if (el.chkPracticeCenters && el.chkPracticeCenters.checked) displayLines.push("CoG / CoR");
+  if (practiceCentersShown()) displayLines.push("CoG / CoR");
   if (el.chkReactions && el.chkReactions.checked) displayLines.push("reactions");
   if (el.chkReactionValues && el.chkReactionValues.checked) displayLines.push("reaction values");
   if (!el.chkSupports || el.chkSupports.checked) displayLines.push("supports");
@@ -3588,11 +3603,11 @@ function updateViewerInfoOverlay(model) {
   if (el.chkElemLabels && el.chkElemLabels.checked) displayLines.push("element IDs");
   if (el.chkMaterial && el.chkMaterial.checked) displayLines.push("material labels");
   if (el.chkSection && el.chkSection.checked) displayLines.push("section labels");
-  if (el.chkMembrane && el.chkMembrane.checked) {
+  if (membraneShown()) {
     const nmem = model.membrane_elements ? model.membrane_elements.length : 0;
     displayLines.push("diaphragm members (" + nmem + ")");
   }
-  if (el.chkWoodWall && el.chkWoodWall.checked) {
+  if (woodWallShown()) {
     const nwrw = model.wood_rated_walls ? model.wood_rated_walls.length : 0;
     displayLines.push("wood walls (" + nwrw + ")");
   }
@@ -3639,8 +3654,14 @@ function updateViewerInfoOverlay(model) {
   lines.push(
     "nodes: " + (model.nodes ? model.nodes.length : 0),
     "elements: " + (model.elements ? model.elements.length : 0),
-    "Diaphragm members: " + (model.membrane_elements ? model.membrane_elements.length : 0),
-    "Wood walls: " + (model.wood_rated_walls ? model.wood_rated_walls.length : 0),
+  );
+  if (isAdvancedGui()) {
+    lines.push(
+      "Diaphragm members: " + (model.membrane_elements ? model.membrane_elements.length : 0),
+      "Wood walls: " + (model.wood_rated_walls ? model.wood_rated_walls.length : 0),
+    );
+  }
+  lines.push(
     "supports: " + supports,
     "point loads: " + pointLoads,
     "element loads: " + elemLoads,
@@ -3977,104 +3998,61 @@ function globalVecToLocal(v, elem) {
   return new THREE.Vector3(v.dot(vx), v.dot(vy), v.dot(vz));
 }
 
-function beamDispLocalAtT(dl, L, t) {
+// Local displacement at t (0..1) of a Timoshenko beam element.
+// dl: local end displacements [u,v,w,rx,ry,rz] x 2 where ry/rz are the
+// member-end bending rotations. The homogeneous part is exact for end
+// displacements/rotations with shear deformation (PHI); the particular part
+// adds the fixed-fixed deflection under the mean local member load.
+function beamDispLocalAtT(dl, L, t, shape) {
   const u1 = dl[0], v1 = dl[1], w1 = dl[2];
-  let ry1 = dl[4], rz1 = dl[5];
+  const ry1 = dl[4], rz1 = dl[5];
   const u2 = dl[6], v2 = dl[7], w2 = dl[8];
-  let ry2 = dl[10], rz2 = dl[11];
+  const ry2 = dl[10], rz2 = dl[11];
+  const s = shape || {};
+  const t2 = t * t, t3 = t2 * t, tt = t - t2;
 
-  const N1 = 1 - t;
-  const N2 = t;
-  const H1 = 1 - 3 * t * t + 2 * t * t * t;
-  const H2 = L * (t - 2 * t * t + t * t * t);
-  const H3 = 3 * t * t - 2 * t * t * t;
-  const H4 = L * (-t * t + t * t * t);
+  function plane(d1, th1, d2, th2, phi) {
+    const p = isFinite(phi) && phi > 0 ? phi : 0;
+    const k = 1 / (1 + p);
+    return k * (
+      (1 - 3 * t2 + 2 * t3 + p * (1 - t)) * d1 +
+      L * (t - 2 * t2 + t3 + 0.5 * p * tt) * th1 +
+      (3 * t2 - 2 * t3 + p * t) * d2 +
+      L * (-t2 + t3 - 0.5 * p * tt) * th2
+    );
+  }
+  function particular(q, EI, phi) {
+    if (!isFinite(q) || q === 0 || !isFinite(EI) || EI <= 0) return 0;
+    const p = isFinite(phi) && phi > 0 ? phi : 0;
+    return q * Math.pow(L, 4) / (24 * EI) * (tt * tt + p * tt);
+  }
 
-  const u = N1 * u1 + N2 * u2;
-  const v = H1 * v1 + H2 * rz1 + H3 * v2 + H4 * rz2;
-  const w = H1 * w1 - H2 * ry1 + H3 * w2 - H4 * ry2;
+  const wl = s.wl;
+  const qy = wl ? 0.5 * (wl[1] + wl[4]) : 0;
+  const qz = wl ? 0.5 * (wl[2] + wl[5]) : 0;
+  const u = (1 - t) * u1 + t * u2;
+  const v = plane(v1, rz1, v2, rz2, s.phiY) + particular(qy, s.EIz, s.phiY);
+  const w = plane(w1, -ry1, w2, -ry2, s.phiZ) + particular(qz, s.EIy, s.phiZ);
   return new THREE.Vector3(u, v, w);
 }
 
-function applyJointEffectiveEndRotations(dl, e, lcKey) {
-  if (!e || !isFinite(e.len) || e.len <= 1e-12) return dl;
-  const keys = ["lyi", "lyj", "lzi", "lzj", "PHIy", "PHIz"];
-  for (const k of keys) {
-    if (!isFinite(e[k])) return dl;
-  }
-
-  const L = e.len;
-  const lyi = e.lyi;
-  const lyj = e.lyj;
-  const lzi = e.lzi;
-  const lzj = e.lzj;
-  const PHIy = e.PHIy;
-  const PHIz = e.PHIz;
-  const rlyi = 1 - lyi;
-  const rlyj = 1 - lyj;
-  const rlzi = 1 - lzi;
-  const rlzj = 1 - lzj;
-
-  const denV = 2 + (2 + PHIy) * lzi + (2 + PHIy) * lzj + 4 * PHIy * lzi * lzj;
-  const denW = 2 + (2 + PHIz) * lyi + (2 + PHIz) * lyj + 4 * PHIz * lyi * lyj;
-  if (Math.abs(denV) < 1e-12 || Math.abs(denW) < 1e-12) return dl;
-
-  const Av = (1 + PHIy) / denV;
-  const Aw = (1 + PHIz) / denW;
-  const v1 = dl[1], rz1 = dl[5], v2 = dl[7], rz2 = dl[11];
-  const w1 = dl[2], ry1 = dl[4], w2 = dl[8], ry2 = dl[10];
-
-  const rz1Eff = Av * (
-    (-2 * rlzi * (1 + 2 * lzj) / L) * v1 +
-    ((4 + PHIy + (2 + 5 * PHIy) * lzj) * lzi) * rz1 +
-    (2 * rlzi * (1 + 2 * lzj) / L) * v2 +
-    (-(2 - PHIy) * rlzi * lzj) * rz2
-  );
-  const rz2Eff = Av * (
-    (-2 * rlzj * (1 + 2 * lzi) / L) * v1 +
-    (-(2 - PHIy) * rlzj * lzi) * rz1 +
-    (2 * rlzj * (1 + 2 * lzi) / L) * v2 +
-    ((4 + PHIy + (2 + 5 * PHIy) * lzi) * lzj) * rz2
-  );
-
-  const ry1Eff = Aw * (
-    (2 * rlyi * (1 + 2 * lyj) / L) * w1 +
-    ((4 + PHIz + (2 + 5 * PHIz) * lyj) * lyi) * ry1 +
-    (-2 * rlyi * (1 + 2 * lyj) / L) * w2 +
-    (-(2 - PHIz) * rlyi * lyj) * ry2
-  );
-  const ry2Eff = Aw * (
-    (2 * rlyj * (1 + 2 * lyi) / L) * w1 +
-    (-(2 - PHIz) * rlyj * lyi) * ry1 +
-    (-2 * rlyj * (1 + 2 * lyi) / L) * w2 +
-    ((4 + PHIz + (2 + 5 * PHIz) * lyi) * lyj) * ry2
-  );
-
+// Replace nodal rotations by the member-end bending rotations reported by
+// the solver (they differ behind EJNT springs/pins), and collect the data
+// for the Timoshenko interpolation.
+function elemShapeData(dl, e, lcKey) {
   const out = dl.slice();
-  out[4] = ry1Eff;
-  out[5] = rz1Eff;
-  out[10] = ry2Eff;
-  out[11] = rz2Eff;
-
-  // If end moments are effectively zero at both ends, the member should
-  // deform linearly in that bending plane (no curvature from end moments).
-  const fs = e && e.forces && e.forces[lcKey];
-  if (fs && fs.length >= 13) {
-    const MOM_TOL = 1e-6;
-    const v1 = dl[1], v2 = dl[7];
-    const w1 = dl[2], w2 = dl[8];
-    if (Math.abs(fs[5]) <= MOM_TOL && Math.abs(fs[12]) <= MOM_TOL) {
-      const rzLin = (v2 - v1) / L;
-      out[5] = rzLin;
-      out[11] = rzLin;
-    }
-    if (Math.abs(fs[4]) <= MOM_TOL && Math.abs(fs[11]) <= MOM_TOL) {
-      const ryLin = -(w2 - w1) / L;
-      out[4] = ryLin;
-      out[10] = ryLin;
-    }
+  const er = e && e.end_rots && e.end_rots[lcKey];
+  if (er && er.length >= 4) {
+    out[5] = er[0];
+    out[11] = er[1];
+    out[4] = er[2];
+    out[10] = er[3];
   }
-  return out;
+  const wl = e && e.local_wloads && e.local_wloads[lcKey];
+  return {
+    dl: out,
+    shape: { phiY: e.PHIy, phiZ: e.PHIz, EIy: e.EIy, EIz: e.EIz, wl: wl || null },
+  };
 }
 
 function elemDeformedPoints(e, n0, n1, model, lc, defFac, nDiv, component) {
@@ -4105,13 +4083,13 @@ function elemDeformedPoints(e, n0, n1, model, lc, defFac, nDiv, component) {
     t0l.x, t0l.y, t0l.z, r0l.x, r0l.y, r0l.z,
     t1l.x, t1l.y, t1l.z, r1l.x, r1l.y, r1l.z,
   ];
-  const dlEff = applyJointEffectiveEndRotations(dl, e, lcKey);
+  const sd = elemShapeData(dl, e, lcKey);
 
   const pts = [];
   const values = [];
   for (let i = 0; i <= nDiv; i++) {
     const t = i / nDiv;
-    const pl = beamDispLocalAtT(dlEff, e.len, t);
+    const pl = beamDispLocalAtT(sd.dl, e.len, t, sd.shape);
     const pg = localVecToGlobal(pl, e);
     const pgDisplay = displacementVectorForComponent(pg, component);
     const pBase = elemPointAlong(p0u, p1u, t);
@@ -4146,14 +4124,14 @@ function maxDispPointInfo(model, lc, defFac, nm, component) {
       t0l.x, t0l.y, t0l.z, r0l.x, r0l.y, r0l.z,
       t1l.x, t1l.y, t1l.z, r1l.x, r1l.y, r1l.z,
     ];
-    const dlEff = applyJointEffectiveEndRotations(dl, e, String(lc));
+    const sd = elemShapeData(dl, e, String(lc));
 
     const p0u = nodePosition(n0, model, lc, defFac, false);
     const p1u = nodePosition(n1, model, lc, defFac, false);
 
     for (let i = 1; i < nDiv; i++) {
       const t = i / nDiv;
-      const pl = beamDispLocalAtT(dlEff, e.len, t);
+      const pl = beamDispLocalAtT(sd.dl, e.len, t, sd.shape);
       const pg = localVecToGlobal(pl, e);
       const value = displacementComponentValue(pg, component);
       const absValue = Math.abs(value);
@@ -4522,8 +4500,14 @@ function sectionSolidGeometry(type, dims) {
     bevelEnabled: false,
     curveSegments: SECTION_SOLID_SEGMENTS,
   });
-  // Extrude depth(+Z) -> member axis(+X)
-  geo.rotateY(Math.PI * 0.5);
+  // Profile (x=B, y=H, extrude z) -> element local (vy, vz, vx), matching the
+  // solver where H lies along local z (Iy = B*H^3/12 is the strong axis).
+  geo.applyMatrix4(new THREE.Matrix4().set(
+    0, 0, 1, 0,
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 0, 1,
+  ));
   // Normalize local member axis to [0, 1] so start/end can be mapped robustly.
   geo.computeBoundingBox();
   if (geo.boundingBox) {
@@ -4955,10 +4939,10 @@ function buildModelScene(model) {
   const showMaterial = el.chkMaterial.checked;
   const showSection = el.chkSection.checked;
   const showSectionSolids = !!(el.chkSectionSolids && el.chkSectionSolids.checked);
-  const showMembrane = !!(el.chkMembrane && el.chkMembrane.checked);
+  const showMembrane = membraneShown();
   const showMembraneEdge = showMembrane
     && !!(el.chkMembraneEdge && el.chkMembraneEdge.checked);
-  const showWoodWall = !!(el.chkWoodWall && el.chkWoodWall.checked);
+  const showWoodWall = woodWallShown();
   const showWoodWallEdge = showWoodWall
     && !!(el.chkWoodWallEdge && el.chkWoodWallEdge.checked);
   const nm = nodeMap(model);
@@ -5344,14 +5328,14 @@ function buildModelScene(model) {
 
   clearGroup(windGroup);
   clearGroup(windLabelGroup);
-  if (el.chkWindLoads && el.chkWindLoads.checked && windVisualData) {
+  if (windLoadsShown() && windVisualData) {
     const wc = windCaseById(windVisualData, selectedWindCaseId);
     if (wc) drawWindOverlay(model, windVisualData, wc, span);
   }
   updateWindLegendOverlay();
 
   clearGroup(practiceCenterGroup);
-  if (el.chkPracticeCenters && el.chkPracticeCenters.checked && practiceSummaryData) {
+  if (practiceCentersShown() && practiceSummaryData) {
     drawPracticeCentersOverlay(model, practiceSummaryData, span);
   }
 
@@ -6321,11 +6305,13 @@ function loadValueLabelPoint(tail, tip, span, scaleFactor) {
 
 function loadTypeFilterValue() {
   const t = viewerOptions.inputLoadType;
+  if (t === "dlod" && !isAdvancedGui()) return "all";
   if (t === "area" || t === "gravity" || t === "linepoint" || t === "dlod") return t;
   return "all";
 }
 
 function shouldDrawDiaphragmLoad() {
+  if (!isAdvancedGui()) return false;
   const t = loadTypeFilterValue();
   return t === "all" || t === "dlod";
 }
@@ -6792,7 +6778,7 @@ function updateWindControlsAvailability() {
 
 function updateWindLegendOverlay() {
   if (!el.windLegendOverlay) return;
-  const show = !!(el.chkWindLoads && el.chkWindLoads.checked && windVisualData);
+  const show = windLoadsShown() && !!windVisualData;
   if (!show) {
     el.windLegendOverlay.hidden = true;
     el.windLegendOverlay.classList.remove("visible");
@@ -7174,8 +7160,12 @@ function drawElementInputLoads(model, opts) {
     const w = ld.w;
     if (elementLoadMagnitude(w) < 1e-9) continue;
 
-    const p0 = nodePosition(n0, model, lc, defFac, deformed);
-    const p1 = nodePosition(n1, model, lc, defFac, deformed);
+    const memberP0 = nodePosition(n0, model, lc, defFac, deformed);
+    const memberP1 = nodePosition(n1, model, lc, defFac, deformed);
+    const t0 = Math.max(0, Math.min(1, Number.isFinite(Number(ld.t0)) ? Number(ld.t0) : 0));
+    const t1 = Math.max(t0, Math.min(1, Number.isFinite(Number(ld.t1)) ? Number(ld.t1) : 1));
+    const p0 = elemPointAlong(memberP0, memberP1, t0);
+    const p1 = elemPointAlong(memberP0, memberP1, t1);
     drawTrapezoidalDistributedLoad(ld, e, p0, p1, {
       arrowBase,
       maxWMag,
@@ -8350,47 +8340,31 @@ function updateForceLegend(forceId, lc) {
     "LOAD CASE: " + lc;
 }
 
-function computeDispFac(model, forceId, lcKey, frcFactor) {
+// The solver reports shear and moment of bottom-to-top vertical members with
+// flipped signs (classes/solve.py _FORCE_SIGN_VERT); distributed-load terms
+// must flip with them.
+function memberLoadSign(e) {
+  return e.is_vxz && e.vx && e.vx[2] > 0 ? -1 : 1;
+}
+
+function forceComponentName(forceId) {
+  return ["", "N", "Qy", "Qz", "Mx", "My", "Mz"][forceId] || "";
+}
+
+function computeDispFac(model, forceId, lcKey, frcFactor, divNum) {
   const b = model.bounds;
   if (!b) return 1;
   const span = Math.max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1);
-  const rowMap = {
-    1: [0, 6],
-    2: [1, 7],
-    3: [2, 8],
-    4: [3, 9],
-    5: [4, 10, 12],
-    6: [5, 11, 13],
-  };
-  const rows = rowMap[forceId] || [];
+  const component = forceComponentName(forceId);
   let overallMax = 0;
 
   for (const e of model.elements) {
     const f = e.forces && e.forces[lcKey];
     if (!f) continue;
-    for (const r of rows) {
-      overallMax = Math.max(overallMax, Math.abs(f[r] || 0));
-    }
-  }
-
-  if (forceId === 5 || forceId === 6) {
-    for (const e of model.elements) {
-      const f = e.forces && e.forces[lcKey];
-      const lds = e.local_wloads && e.local_wloads[lcKey];
-      if (!f || !lds) continue;
-      const len = e.len || 1;
-      const wzi = lds[2], wzj = lds[5], wyi = lds[1], wyj = lds[4];
-      if (forceId === 5) {
-        const qzi = f[2], myi = f[4];
-        const wXc = wzi + (wzj - wzi) * 0.5;
-        const mXc = myi + qzi * 0.5 * len + (1 / 6) * (wzi + 2 * wXc) * (0.5 * len) ** 2;
-        overallMax = Math.max(overallMax, Math.abs(mXc));
-      } else if (forceId === 6) {
-        const qyi = f[1], mzi = f[5];
-        const wXc = wyi + (wyj - wyi) * 0.5;
-        const mXc = mzi - qyi * 0.5 * len - (1 / 6) * (wyi + 2 * wXc) * (0.5 * len) ** 2;
-        overallMax = Math.max(overallMax, Math.abs(mXc));
-      }
+    const segs = forceSegments(e, lcKey, memberLoadSign);
+    for (const t of sampleStations(divNum, segs)) {
+      const value = sectionForceAt(f, e.len || 0, segs, t)[component];
+      overallMax = Math.max(overallMax, Math.abs(value || 0));
     }
   }
 
@@ -8448,12 +8422,6 @@ function addForceValueLabelWithLeader(text, diagramPt, axisPt, span, group) {
   forceLabelEntries.push(entry);
 }
 
-function anchorDiagramValue(rawValue, rawMid, rawEnd, targetMid, targetEnd, t) {
-  const midCorrection = (targetMid - rawMid) * 4 * t * (1 - t);
-  const endCorrection = (targetEnd - rawEnd) * (2 * t * t - t);
-  return rawValue + midCorrection + endCorrection;
-}
-
 function buildForceDiagrams(model) {
   clearGroup(forceGroup);
   clearGroup(forceLabelGroup);
@@ -8475,9 +8443,10 @@ function buildForceDiagrams(model) {
   const deformed = el.chkDeformed.checked && analysisComplete(model);
   const divNum = parseInt(el.frcDiv.value, 10) || 8;
   const frcFactor = parseFloat(el.frcFactor.value) || 10;
-  const dispFac = computeDispFac(model, forceId, lcKey, frcFactor);
+  const dispFac = computeDispFac(model, forceId, lcKey, frcFactor, divNum);
   const nm = nodeMap(model);
   const showValues = el.chkForceValues.checked;
+  const component = forceComponentName(forceId);
 
   for (const e of model.elements) {
     if (!isMemberElementVisible(e.id)) continue;
@@ -8488,136 +8457,68 @@ function buildForceDiagrams(model) {
 
     const p0 = nodePosition(n0, model, lc, defFac, deformed);
     const p1 = nodePosition(n1, model, lc, defFac, deformed);
-    const lds = (e.local_wloads && e.local_wloads[lcKey]) || [0, 0, 0, 0, 0, 0];
+    const segs = forceSegments(e, lcKey, memberLoadSign);
+    const stations = sampleStations(divNum, segs);
     const stemPts = [];
     const splinePts = [];
     const labels = [];
+    let axis;
+    let diagramSign = 1;
 
     if (forceId === 1) {
-      let vz = new THREE.Vector3().fromArray(e.vz);
-      if (e.is_vxz && e.vx && e.vx[2] < PRES_ZERO) vz.multiplyScalar(-1);
-      const ni = f[0], nj = f[6];
-      const nXc = 0.5 * ni + 0.5 * nj;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vz, dispFac * nXc);
-
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const nX = ni + (nj - ni) * t;
-        const ptF = pt.clone().addScaledVector(vz, dispFac * nX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: ni, pt: splinePts[0], axisPt: p0 },
-        { val: nXc, pt: mp, axisPt: pMid },
-        { val: nj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+      axis = new THREE.Vector3().fromArray(e.vz);
+      if (e.is_vxz && e.vx && e.vx[2] < PRES_ZERO) axis.multiplyScalar(-1);
     } else if (forceId === 2) {
-      const vy = new THREE.Vector3().fromArray(e.vy);
-      const wyi = lds[1], wyj = lds[4];
-      const qyi = f[1], qyj = f[7];
-      const wXc = wyi + (wyj - wyi) * 0.5;
-      const qXc = -qyi - 0.5 * (wyi + wXc) * 0.5 * e.len;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vy, dispFac * qXc);
-
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const x = t * e.len;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const wX = wyi + (wyj - wyi) * t;
-        const qX = -qyi - 0.5 * (wyi + wX) * x;
-        const ptF = pt.clone().addScaledVector(vy, dispFac * qX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: qyi, pt: splinePts[0], axisPt: p0 },
-        { val: qXc, pt: mp, axisPt: pMid },
-        { val: qyj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+      // Positive (clockwise) shear goes on the +local-axis side, i.e. above a
+      // beam as in Japanese practice; vertical members report flipped signs.
+      axis = new THREE.Vector3().fromArray(e.vy);
+      if (e.is_vxz) axis.multiplyScalar(-1);
     } else if (forceId === 3) {
-      const vz = new THREE.Vector3().fromArray(e.vz);
-      const wzi = lds[2], wzj = lds[5];
-      const qzi = f[2], qzj = f[8];
-      const wXc = wzi + (wzj - wzi) * 0.5;
-      const qXc = -qzi - 0.5 * (wzi + wXc) * 0.5 * e.len;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vz, dispFac * qXc);
-
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const x = t * e.len;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const wX = wzi + (wzj - wzi) * t;
-        const qX = -qzi - 0.5 * (wzi + wX) * x;
-        const ptF = pt.clone().addScaledVector(vz, dispFac * qX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: qzi, pt: splinePts[0], axisPt: p0 },
-        { val: qXc, pt: mp, axisPt: pMid },
-        { val: qzj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+      axis = new THREE.Vector3().fromArray(e.vz);
+      if (e.is_vxz) axis.multiplyScalar(-1);
     } else if (forceId === 5) {
-      let vz = new THREE.Vector3().fromArray(e.vz);
-      if (e.is_vxz) vz.multiplyScalar(-1);
-      const wzi = lds[2], wzj = lds[5];
-      const qzi = f[2], myi = f[4], myj = f[10];
-      const wXc = wzi + (wzj - wzi) * 0.5;
-      const mXcCalc = myi + qzi * 0.5 * e.len + (1 / 6) * (wzi + 2 * wXc) * (0.5 * e.len) ** 2;
-      const mXc = Number.isFinite(f[12]) ? f[12] : mXcCalc;
-      const mEndCalc = myi + qzi * e.len + (1 / 6) * (wzi + 2 * wzj) * e.len * e.len;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vz, -dispFac * mXc);
-
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const x = t * e.len;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const wX = wzi + (wzj - wzi) * t;
-        const mRaw = myi + qzi * x + (1 / 6) * (wzi + 2 * wX) * x * x;
-        const mX = anchorDiagramValue(mRaw, mXcCalc, mEndCalc, mXc, myj, t);
-        const ptF = pt.clone().addScaledVector(vz, -dispFac * mX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: myi, pt: splinePts[0], axisPt: p0 },
-        { val: mXc, pt: mp, axisPt: pMid },
-        { val: myj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+      axis = new THREE.Vector3().fromArray(e.vz);
+      if (e.is_vxz) axis.multiplyScalar(-1);
+      diagramSign = -1;
     } else if (forceId === 6) {
-      let vy = new THREE.Vector3().fromArray(e.vy);
-      if (e.is_vxz) vy.multiplyScalar(-1);
-      const wyi = lds[1], wyj = lds[4];
-      const qyi = f[1], mzi = f[5], mzj = f[11];
-      const wXc = wyi + (wyj - wyi) * 0.5;
-      const mXcCalc = mzi - qyi * 0.5 * e.len - (1 / 6) * (wyi + 2 * wXc) * (0.5 * e.len) ** 2;
-      const mXc = Number.isFinite(f[13]) ? f[13] : mXcCalc;
-      const mEndCalc = mzi - qyi * e.len - (1 / 6) * (wyi + 2 * wyj) * e.len * e.len;
-      const mp = new THREE.Vector3().lerpVectors(p0, p1, 0.5).addScaledVector(vy, dispFac * mXc);
+      axis = new THREE.Vector3().fromArray(e.vy);
+      if (e.is_vxz) axis.multiplyScalar(-1);
+    }
 
-      for (let i = 0; i <= divNum; i++) {
-        const t = i / divNum;
-        const x = t * e.len;
-        const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
-        const wX = wyi + (wyj - wyi) * t;
-        const mRaw = mzi - qyi * x - (1 / 6) * (wyi + 2 * wX) * x * x;
-        const mX = anchorDiagramValue(mRaw, mXcCalc, mEndCalc, mXc, mzj, t);
-        const ptF = pt.clone().addScaledVector(vy, dispFac * mX);
-        stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
-        splinePts.push(ptF);
-      }
-      const pMid = new THREE.Vector3().lerpVectors(p0, p1, 0.5);
-      labels.push(
-        { val: mzi, pt: splinePts[0], axisPt: p0 },
-        { val: mXc, pt: mp, axisPt: pMid },
-        { val: mzj, pt: splinePts[splinePts.length - 1], axisPt: p1 },
-      );
+    const sampled = [];
+    for (const t of stations) {
+      const value = sectionForceAt(f, e.len, segs, t)[component];
+      const pt = new THREE.Vector3().lerpVectors(p0, p1, t);
+      const ptF = pt.clone().addScaledVector(axis, diagramSign * dispFac * value);
+      stemPts.push(pt.x, pt.y, pt.z, ptF.x, ptF.y, ptF.z);
+      splinePts.push(ptF);
+      sampled.push({ t: t, val: value, pt: ptF, axisPt: pt });
+    }
+
+    const labelStations = [0, 0.5, 1].map(function (t) {
+      const value = sectionForceAt(f, e.len, segs, t)[component];
+      const axisPt = new THREE.Vector3().lerpVectors(p0, p1, t);
+      return {
+        t: t,
+        val: value,
+        axisPt: axisPt,
+        pt: axisPt.clone().addScaledVector(axis, diagramSign * dispFac * value),
+      };
+    });
+    labels.push(...labelStations);
+
+    let extreme = sampled[0];
+    for (const item of sampled) {
+      if (Math.abs(item.val) > Math.abs(extreme.val)) extreme = item;
+    }
+    const midAbs = Math.abs(labelStations[1].val);
+    if (
+      extreme.t > 1e-6 && extreme.t < 1 - 1e-6 &&
+      Math.abs(extreme.t - 0.5) > 1e-6 &&
+      Math.abs(extreme.val) > midAbs * 1.01 &&
+      Math.abs(extreme.val) > PRES_ZERO
+    ) {
+      labels.push(extreme);
     }
 
     addForceStemAndSpline(stemPts, splinePts, forceGroup);
@@ -10117,6 +10018,7 @@ function initTextDocumentWindow(w, text, title, pdfName, saveName) {
   doc.write(title);
   doc.write("</header><pre class=\"doc-content\"></pre></body></html>");
   doc.close();
+  attachI18n(doc);
   (doc.querySelector("pre.doc-content") || doc.querySelector("pre")).textContent = text;
   doc.getElementById("btnSaveTxt").onclick = function () {
     const blob = new Blob([w.__stbTextDocContent], { type: "text/plain;charset=utf-8" });
@@ -10226,6 +10128,7 @@ function initInputEditorWindow(w, text, path) {
   doc.write("<textarea id=\"txt\"></textarea>");
   doc.write("</body></html>");
   doc.close();
+  attachI18n(doc);
 
   const textarea = doc.getElementById("txt");
   const statusEl = doc.getElementById("status");
@@ -10361,7 +10264,11 @@ async function openResultsWindow() {
 async function createNewModel() {
   setStatus("Creating new model…");
   try {
-    const res = await fetch("/api/model/new", { method: "POST" });
+    const res = await fetch("/api/model/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: guiMode }),
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || res.statusText);
@@ -10436,6 +10343,20 @@ function startGuiHeartbeat() {
   });
 }
 
+async function showAppVersion() {
+  const el = document.getElementById("appVersion");
+  if (!el) return;
+  try {
+    const info = await fetchApiJson("/api/version");
+    if (info.version) {
+      el.textContent = "Structural Toolbox v" + info.version;
+      document.title = "Structural Toolbox v" + info.version;
+    }
+  } catch (_) {
+    // Keep the plain product name when the version is unavailable.
+  }
+}
+
 async function initGuiLifecycle() {
   try {
     const cfg = await fetchApiJson("/api/gui-config");
@@ -10472,6 +10393,7 @@ window.addEventListener("pagehide", (ev) => {
 });
 
 initGuiLifecycle();
+showAppVersion();
 
 async function loadSelectedModel(solve, options) {
   options = options || {};
@@ -10535,6 +10457,7 @@ async function bootstrap() {
   loadPickWrwCreateModel();
   loadPickSubMode();
   initUiTheme();
+  applyGuiMode(loadGuiMode());
   const listPromise = fetchModelList();
   initThree();
   initDisplayPrefs();
@@ -10728,10 +10651,19 @@ if (el.btnToggleDistance) {
   });
 }
 
-if (el.btnTheme) {
-  el.btnTheme.addEventListener("click", () => {
-    applyUiTheme(uiTheme === "dark" ? "light" : "dark");
+if (el.optTheme) {
+  el.optTheme.addEventListener("change", () => {
+    applyUiTheme(el.optTheme.value);
     saveUiTheme();
+  });
+}
+
+if (el.btnGuiMode) {
+  el.btnGuiMode.addEventListener("click", () => {
+    applyGuiMode(guiMode === "simple" ? "advanced" : "simple");
+    try {
+      localStorage.setItem(GUI_MODE_STORAGE_KEY, guiMode);
+    } catch (e) { /* ignore */ }
   });
 }
 
@@ -11281,10 +11213,8 @@ function applyUiTheme(theme) {
   if (meta) {
     meta.setAttribute("content", uiThemeMetaColor(uiTheme));
   }
-  if (el.btnTheme) {
-    const isDark = uiTheme === "dark";
-    el.btnTheme.textContent = isDark ? "Theme: Dark" : "Theme: Light";
-    el.btnTheme.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+  if (el.optTheme && el.optTheme.value !== uiTheme) {
+    el.optTheme.value = uiTheme;
   }
   if (currentModel) {
     rebuildScene();
@@ -11293,6 +11223,51 @@ function applyUiTheme(theme) {
 
 function initUiTheme() {
   applyUiTheme(loadUiTheme());
+}
+
+function loadGuiMode() {
+  try {
+    return localStorage.getItem(GUI_MODE_STORAGE_KEY) === "advanced" ? "advanced" : "simple";
+  } catch (e) {
+    return "simple";
+  }
+}
+
+function applyGuiMode(mode) {
+  guiMode = mode === "advanced" ? "advanced" : "simple";
+  document.documentElement.setAttribute("data-gui-mode", guiMode);
+  if (el.btnGuiMode) {
+    const advanced = guiMode === "advanced";
+    el.btnGuiMode.textContent = advanced ? "Advanced GUI (WIP)" : "Simple GUI";
+    el.btnGuiMode.classList.toggle("advanced", advanced);
+    el.btnGuiMode.title = advanced
+      ? "Switch to Simple GUI (hides Project / Loads / Practice)"
+      : "Switch to Advanced GUI (WIP): adds Project / Loads / Practice";
+  }
+  if (el.loadTypeFilter) el.loadTypeFilter.value = loadTypeFilterValue();
+  updatePickModeUI();
+  updateWindLegendOverlay();
+  if (currentModel) rebuildScene();
+}
+
+function isAdvancedGui() {
+  return guiMode === "advanced";
+}
+
+function windLoadsShown() {
+  return isAdvancedGui() && !!(el.chkWindLoads && el.chkWindLoads.checked);
+}
+
+function practiceCentersShown() {
+  return isAdvancedGui() && !!(el.chkPracticeCenters && el.chkPracticeCenters.checked);
+}
+
+function membraneShown() {
+  return isAdvancedGui() && !!(el.chkMembrane && el.chkMembrane.checked);
+}
+
+function woodWallShown() {
+  return isAdvancedGui() && !!(el.chkWoodWall && el.chkWoodWall.checked);
 }
 
 function loadViewerOptions() {

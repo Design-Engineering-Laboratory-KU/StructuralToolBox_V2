@@ -1,8 +1,8 @@
 """Which Python interpreter is running Structural Toolbox.
 
-Student installs bundle their own interpreter, so both the GUI and the
+Installer-based installs bundle their own interpreter, so both the GUI and the
 Grasshopper components must run inside the install's ``.venv`` and never fall
-back to a Python the student installed for another course.
+back to a Python the user installed for something else.
 """
 
 import os

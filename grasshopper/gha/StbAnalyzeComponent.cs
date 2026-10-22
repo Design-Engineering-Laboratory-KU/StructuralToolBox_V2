@@ -7,7 +7,7 @@ namespace StbGrasshopper
     public sealed class StbAnalyzeComponent : GH_Component
     {
         public StbAnalyzeComponent()
-            : base("STb Analyze", "STb Analyze", "Analyze an STb Model and output the analyzed STb Model.", "STB", "Analyze")
+            : base("STb Analyze", "STb Analyze", "Analyze an STb Model and output the analyzed STb Model.", StbCategories.Tab, StbCategories.Analyze)
         {
         }
 

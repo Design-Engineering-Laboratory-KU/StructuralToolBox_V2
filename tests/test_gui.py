@@ -587,6 +587,30 @@ class TestGuiApi(unittest.TestCase):
             if os.path.isfile(full):
                 os.remove(full)
 
+    def test_api_model_new_simple_mode_omits_diaphragm_formats(self):
+        if self.client == None:
+            self.skipTest("fastapi not installed")
+        import os
+        from stb_gui.input_format import NEW_MODEL_TEMPLATE, NEW_MODEL_TEMPLATE_SIMPLE
+        from stb_gui.model_json import project_root
+        r = self.client.post("/api/model/new", json={"mode": "simple"})
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        full = os.path.join(project_root(), body["path"].replace("/", os.sep))
+        try:
+            self.assertEqual(body["text"], NEW_MODEL_TEMPLATE_SIMPLE)
+            for tag in ("DLOD", "DMAT", "DIAP", "DREG", "DOPN", "DMEM", "DCON", "WWLL", "AXIS", "PLOT"):
+                self.assertNotIn("# " + tag + ",", body["text"])
+                self.assertIn("# " + tag + ",", NEW_MODEL_TEMPLATE)
+            for tag in ("MATE", "SECT", "NODE", "ELEM", "CONS", "PLOD", "ELOD", "ALOD", "GLOD"):
+                self.assertIn("# " + tag + ",", body["text"])
+            self.assertGreaterEqual(NEW_MODEL_TEMPLATE.count("# DLOD,"), 5)
+            m = self.client.get("/api/model", params={"path": body["path"], "solve": 0})
+            self.assertEqual(m.status_code, 200)
+        finally:
+            if os.path.isfile(full):
+                os.remove(full)
+
     def test_api_model_open_upload(self):
         if self.client == None:
             self.skipTest("fastapi not installed")
@@ -624,6 +648,15 @@ class TestGuiApi(unittest.TestCase):
         r = self.client.post("/api/heartbeat")
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json()["ok"])
+
+    def test_api_version_matches_version_file(self):
+        if self.client == None:
+            self.skipTest("fastapi not installed")
+        from stb_engine.version import __version__
+
+        r = self.client.get("/api/version")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["version"], __version__)
 
     def test_api_gui_config_default(self):
         if self.client == None:

@@ -11,6 +11,9 @@
     <!-- GH_Component.Icon requires System.Drawing.Bitmap. Rhino/Grasshopper
          provides the supported host environment on each target platform. -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <!-- The version comes from the VERSION file at the repository root. -->
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../../VERSION').Trim())</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">

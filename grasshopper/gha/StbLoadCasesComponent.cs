@@ -12,8 +12,8 @@ namespace StbGrasshopper
                 "STB Load Cases",
                 "STB LC",
                 "List available load cases in parsed STB results.",
-                "STB",
-                "Results")
+                StbCategories.Tab,
+                StbCategories.Info)
         {
         }
 

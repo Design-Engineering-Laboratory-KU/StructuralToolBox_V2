@@ -1,5 +1,8 @@
 import nd, elm, mat, sec, cons, common, mdl, io
-from ld import PLd, ALd, ELd, Lcase, Lcmb
+from ld import (
+    PLd, ALd, ELd, Lcase, Lcmb,
+    segment_fixed_end_forces, segment_linear_equivalent, segment_moment_integral,
+)
 import copy
 import math
 import numpy as np
@@ -33,14 +36,63 @@ LARGE_SYSTEM_NNZ = 200000
 
 # Sign flips applied to member-end forces for reporting. Index 6 (fxj) and
 # 9 (mxj) are left as-is; the rest depend on whether the member is vertical.
+# In both tables each j-end entry is the negated i-end entry, so a section
+# force keeps one sign convention along the member.
 _FORCE_SIGN_VERT = np.array(
-    [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0]
+    [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 )
 _FORCE_SIGN_FLAT = np.array(
     [-1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0, -1.0]
 )
 
 #from classes.elm import Elm1D
+
+
+def _release_fixed_end_forces(e):
+    """Adjust member fixed-end forces (e.elds) for EJNT end springs / pins.
+
+    Uses the same exact condensation as the member stiffness
+    (elm.condense_end_springs), so shear deformation is consistent. The
+    rigid-ended loads are kept in e.elds_fixed for member-end rotations.
+    """
+    if e.elds is None:
+        e.elds_fixed = None
+        return
+    e.elds_fixed = e.elds.copy()
+    kyi, kyj, kzi, kzj = elm.element_end_springs(e)
+    if kzi is not None or kzj is not None:
+        rows = list(elm.PLANE_ROWS_Z)
+        Kb = elm.timoshenko_plane_stiffness(e.sec.mat.E * e.sec.Iz, e.len, e.PHIy)
+        _, fc = elm.condense_end_springs(Kb, kzi, kzj, e.elds[rows, :])
+        e.elds[rows, :] = fc
+    if kyi is not None or kyj is not None:
+        rows = list(elm.PLANE_ROWS_Y)
+        flip = elm.PLANE_Y_FLIP[:, None]
+        Kb = elm.timoshenko_plane_stiffness(e.sec.mat.E * e.sec.Iy, e.len, e.PHIz)
+        _, fc = elm.condense_end_springs(Kb, kyi, kyj, flip * e.elds[rows, :])
+        e.elds[rows, :] = flip * fc
+
+
+def member_end_bending_rotations(e):
+    """Local member-end bending rotations [rz_i, rz_j, ry_i, ry_j] x nlc.
+
+    Equal to the nodal rotations at rigid ends; at EJNT springs/pins they
+    are the rotations of the member itself (behind the spring).
+    """
+    d = np.asarray(e.tm, dtype=np.float64) @ np.asarray(e.ndisps, dtype=np.float64)
+    nlc = d.shape[1]
+    f = getattr(e, "elds_fixed", None)
+    if f is None:
+        f = np.zeros((12, nlc))
+    kyi, kyj, kzi, kzj = elm.element_end_springs(e)
+    rz = elm.member_end_rotations(
+        elm.timoshenko_plane_stiffness(e.sec.mat.E * e.sec.Iz, e.len, e.PHIy),
+        kzi, kzj, d[list(elm.PLANE_ROWS_Z), :], f[list(elm.PLANE_ROWS_Z), :nlc])
+    flip = elm.PLANE_Y_FLIP[:, None]
+    ry = elm.member_end_rotations(
+        elm.timoshenko_plane_stiffness(e.sec.mat.E * e.sec.Iy, e.len, e.PHIz),
+        kyi, kyj, flip * d[list(elm.PLANE_ROWS_Y), :], flip * f[list(elm.PLANE_ROWS_Y), :nlc])
+    return np.vstack([rz, -ry])
 
 
 def _as_dense_disps(disps):
@@ -451,6 +503,9 @@ class Solve:
         w = self._ElemLocalWLoadsBatch(elms, nlc)
         half = 0.5 * lens
         half2 = half ** 2
+        # Vertical members report shear and moment with flipped signs, so the
+        # load term of the mid-span moment flips with them.
+        load_sign = np.where(vert, -1.0, 1.0)[:, None]
         wzi = w[:, 2, :]
         wzj = w[:, 5, :]
         wyi = w[:, 1, :]
@@ -459,18 +514,94 @@ class Solve:
         wxc_y = wyi + (wyj - wyi) * 0.5
         forces[:, 12, :] = (
             forces[:, 4, :] + forces[:, 2, :] * half[:, None]
-            + (1.0 / 6.0) * (wzi + 2.0 * wxc_z) * half2[:, None]
+            + load_sign * (1.0 / 6.0) * (2.0 * wzi + wxc_z) * half2[:, None]
         )
         forces[:, 13, :] = (
             forces[:, 5, :] - forces[:, 1, :] * half[:, None]
-            - (1.0 / 6.0) * (wyi + 2.0 * wxc_y) * half2[:, None]
+            - load_sign * (1.0 / 6.0) * (2.0 * wyi + wxc_y) * half2[:, None]
         )
+
+        # Members with partial (T0/T1) line loads: the mid-span moment is
+        # evaluated exactly from the load segments (section-force relations
+        # My(x) = Myi + Qzi x + int (x - xi) wz_d, Mz(x) = Mzi - Qyi x - int (x - xi) wy_d).
+        self._BuildElemLoadSegments(elms, nlc)
+        for k, e in enumerate(elms):
+            for c, segs in e.wsegs.items():
+                if c >= nlc or not any(s[0] > 0.0 or s[1] < 1.0 for s in segs):
+                    continue
+                iy = 0.0
+                iz = 0.0
+                for t0, t1, *lds in segs:
+                    m = segment_moment_integral(lens[k], t0, t1, lds, half[k])
+                    iy += m[2]
+                    iz += m[1]
+                forces[k, 12, c] = (
+                    forces[k, 4, c] + forces[k, 2, c] * half[k] + load_sign[k, 0] * iy)
+                forces[k, 13, c] = (
+                    forces[k, 5, c] - forces[k, 1, c] * half[k] - load_sign[k, 0] * iz)
 
         for k, e in enumerate(elms):
             e.ndisps = disps[k]
             e.forces = forces[k]
 
         return
+
+    def _BuildElemLoadSegments(self, elms, nlc):
+        """Local load segments per member and computational load case.
+
+        Sets e.wsegs = {clc: [(t0, t1, wxi, wyi, wzi, wxj, wyj, wzj), ...]}
+        (ECS, N/m, raw sign). Full-length loads (ELOD without T0/T1, GLOD,
+        ALOD) are merged into one segment (0, 1, ...) and listed first; every
+        partial ELOD record is its own segment. Connected boundary members
+        keep the in-plane rule: local wy is zeroed.
+        """
+
+        index_by_id = {e.id: k for k, e in enumerate(elms)}
+        full = {}
+        parts = {}
+
+        for el in self.mdl.elds:
+            k = index_by_id.get(el.eid)
+            if k is None:
+                continue
+            e = elms[k]
+            lds = np.asarray(el.lds, dtype=np.float64)
+            if el.isGlobal == True:
+                lds = e.tm[0:6, 0:6] @ lds
+            if el.is_partial:
+                parts.setdefault((k, el.clc), []).append((el.t0, el.t1, lds))
+            else:
+                full.setdefault((k, el.clc), np.zeros(6, dtype=np.float64))
+                full[(k, el.clc)] += lds
+
+        for k, e in enumerate(elms):
+            for arr in (e.glds, e.alds):
+                if arr is None:
+                    continue
+                ncols = min(nlc, arr.shape[1])
+                for c in np.nonzero(np.any(arr[:, :ncols] != 0.0, axis=0))[0]:
+                    full.setdefault((k, int(c)), np.zeros(6, dtype=np.float64))
+                    full[(k, int(c))] += arr[:, c]
+
+        connected = self._IndexBoundaryAssocs()
+        for e in elms:
+            e.wsegs = {}
+        for key in sorted(set(full) | set(parts)):
+            k, c = key
+            e = elms[k]
+            zero_wy = bool(connected) and (e.id in connected)
+            segs = []
+            if key in full:
+                segs.append((0.0, 1.0, full[key]))
+            segs.extend(parts.get(key, []))
+            rows = []
+            for t0, t1, lds in segs:
+                lds = np.array(lds, dtype=np.float64)
+                if zero_wy:
+                    lds[1] = 0.0
+                    lds[4] = 0.0
+                rows.append((float(t0), float(t1), *[float(v) for v in lds]))
+            e.wsegs[c] = rows
 
     def _ElemLocalWLoadsBatch(self, elms, nlc):
         """Distributed ECS line loads (wyi, wzi, ...) for every member and load case."""
@@ -487,6 +618,9 @@ class Solve:
             lds = np.asarray(el.lds, dtype=np.float64)
             if el.isGlobal == True:
                 lds = e.tm[0:6, 0:6] @ lds
+            if el.is_partial:
+                # linear equivalent over the full member (same resultant and first moment)
+                lds = segment_linear_equivalent(e.len, el.t0, el.t1, lds)
             w[k, :, el.clc] += lds
 
         for k, e in enumerate(elms):
@@ -517,7 +651,10 @@ class Solve:
             el_lds = np.array(el.lds, dtype=np.float64).reshape(6, 1)
             if el.isGlobal == True:
                 el_lds = _e.tm[0:6, 0:6] @ el_lds
-            lds += el_lds.reshape(6)
+            el_lds = el_lds.reshape(6)
+            if el.is_partial:
+                el_lds = segment_linear_equivalent(_e.len, el.t0, el.t1, el_lds)
+            lds += el_lds
 
         if _e.glds is not None and _lc_idx < _e.glds.shape[1]:
             lds += _e.glds[:, _lc_idx]
@@ -832,14 +969,25 @@ class Solve:
                 lds = np.array(lds)
 
             # all lds are now in ECS
-            fwe[ 0] =  0.0                                                # fxi
+            if el.is_partial:
+                # exact Timoshenko deflection fields (same PHI as the element stiffness)
+                mat = e.sec.mat
+                phi_y = 12.0 * mat.E * e.sec.Iz / (mat.G * e.sec.Asy * e.len ** 2)
+                phi_z = 12.0 * mat.E * e.sec.Iy / (mat.G * e.sec.Asz * e.len ** 2)
+                fwe[:, 0] = segment_fixed_end_forces(e.len, el.t0, el.t1, lds, phi_y, phi_z)
+                if e.elds is None:
+                    e.elds = np.zeros((self.ndof*2, self.num_lcs), dtype = np.float64)
+                e.elds[:, col] += fwe.reshape(-1)  ### ECS
+                continue
+
+            fwe[ 0] =  e.len / 6.0  * (2.0 * lds[0] + 1.0 * lds[3])       # fxi
             fwe[ 1] =  e.len / 20.0 * (7.0 * lds[1] + 3.0 * lds[4])       # fyi
             fwe[ 2] =  e.len / 20.0 * (7.0 * lds[2] + 3.0 * lds[5])       # fzi
             fwe[ 3] =  0.0                                                # mxi
             fwe[ 4] = -e.len**2 / 60.0 * (3.0 * lds[2] + 2.0 * lds[5]) #+ # myi
             fwe[ 5] =  e.len**2 / 60.0 * (3.0 * lds[1] + 2.0 * lds[4])    # mzi -
 
-            fwe[ 6] =  0.0                                                # fxj
+            fwe[ 6] =  e.len / 6.0  * (1.0 * lds[0] + 2.0 * lds[3])       # fxj
             fwe[ 7] =  e.len / 20.0 * (3.0 * lds[1] + 7.0 * lds[4])       # fyj
             fwe[ 8] =  e.len / 20.0 * (3.0 * lds[2] + 7.0 * lds[5])       # fzj
             fwe[ 9] =  0.0                                                # mxj
@@ -904,6 +1052,9 @@ class Solve:
                 for k, e in enumerate(elms):
                     e.elds[:, col] += f[k]
                     e.glds[:, col] += gvec[k]
+
+        for e in self.mdl.elms:
+            _release_fixed_end_forces(e)
 
         connected = self._IndexBoundaryAssocs()
         for e in self.mdl.elms:

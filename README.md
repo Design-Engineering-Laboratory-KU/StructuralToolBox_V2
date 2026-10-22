@@ -15,9 +15,9 @@ python3 -m venv .venv
 
 Multi-machine / Dropbox notes: [docs/setup_venv.md](docs/setup_venv.md).
 
-### Student distribution (Windows 11, policy B)
+### Installers (Windows 11 / macOS)
 
-For classroom/home use without Git: build a Windows Setup.exe ([student/build_student_installer.ps1](student/build_student_installer.ps1), bundles **Windows embeddable Python**) or a Mac installer ([student/build_student_mac.ps1](student/build_student_mac.ps1)). Students do not install Python themselves. Guides: [docs/学生用_インストール_Windows.md](docs/学生用_インストール_Windows.md), [docs/学生用_インストール_Mac.md](docs/学生用_インストール_Mac.md). Instructor notes: [student/README.md](student/README.md).
+For classroom/home use without Git: build a Windows Setup.exe ([installer/build_windows_installer.ps1](installer/build_windows_installer.ps1), bundles **Windows embeddable Python**) or a Mac installer ([installer/build_mac.ps1](installer/build_mac.ps1)). Users do not install Python themselves. Guide: [docs/インストール.md](docs/インストール.md). Building the installers: [docs/インストーラ作成.md](docs/インストーラ作成.md), [installer/README.md](installer/README.md).
 
 ## Command-line interface (Phase 1)
 

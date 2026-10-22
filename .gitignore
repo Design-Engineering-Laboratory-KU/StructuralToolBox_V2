@@ -40,8 +40,8 @@ tests/_tmp_out/
 # Benchmark scratch (generated models, timings, profiles)
 .bench/
 
-# Student distribution builds
-student/dist/
+# Installer builds
+installer/dist/
 python-embed/
 
 # VS Code (keep shared workspace settings)

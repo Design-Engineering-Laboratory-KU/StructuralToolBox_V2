@@ -1,0 +1,132 @@
+# --- 2F building: X 1x5.5m (lines 1-2), Y AB=9m BC=3.2m (A-C) ---
+# 1F foundation beams @ z=0; columns; frame beams @ 2F / R
+# Floor ALOD 10 kN/m2 (LC0) on 1F, 2F, R bays; wall ALOD 2 kN/m2 (LC1) on exterior XZ
+# Units: m, kN, kN/m, N/mm2
+
+# --- MATERIAL(MATE) ---
+# MATE,   ID,       NAME,        E,        G,    Gamma,    Alpha,       Fy
+#     ,     ,           ,    N/mm2,    N/mm2,    kN/m3,        -,    N/mm2
+
+MATE,      0,     SN400B,   205000,    79000,     78.5,  1.2e-05,      235
+MATE,      1,     BCR295,   205000,    79000,     78.5,  1.2e-05,      295
+MATE,      2,       FC24,    25500,    10600,     24.0,    1e-05,       24
+
+# --- SECTION(SECT) ---
+# SECT,   ID,       NAME,    MAT,   TYPE,     DIM1,     DIM2,     DIM3,     DIM4
+#     ,     ,           ,       ,       ,       mm,       mm,       mm,       mm
+#   TYPE: 0=RECT  1=CIRC  2=I  3=CHS  4=RHS
+#   DIM3,DIM4: optional; omit for types with fewer dimensions
+
+# TYPE 0:RECT 1:CIRC 2:I 3:CHS 4:RHS
+
+SECT,      0,         C1,      1,      4,    350.0,    350.0,     19.0,     19.0
+SECT,      1,         G1,      0,      2,    500.0,    200.0,     12.0,     19.0
+SECT,      2,         G2,      0,      2,    500.0,    200.0,     12.0,     19.0
+SECT,      3,         G3,      0,      2,    500.0,    200.0,     12.0,     19.0
+SECT,      4,        FG1,      2,      0,    500.0,   1200.0
+SECT,      5,        FG2,      2,      0,    500.0,   1200.0
+SECT,      6,        FG3,      2,      0,    500.0,   1200.0
+
+# --- NODE ---
+# NODE,   ID,         X,         Y,         Z
+#     ,     ,         m,         m,         m
+
+NODE,      0,       0.0,       0.0,       0.0,      *
+NODE,      1,       0.0,       9.0,       0.0,      *
+NODE,      2,       0.0,      12.2,       0.0,      *
+NODE,     10,       5.5,       0.0,       0.0,      *
+NODE,     11,       5.5,       9.0,       0.0,      *
+NODE,     12,       5.5,      12.2,       0.0,      *
+NODE,    100,       0.0,       0.0,       3.8,       
+NODE,    101,       0.0,       9.0,       3.8,       
+NODE,    102,       0.0,      12.2,       3.8,       
+NODE,    110,       5.5,       0.0,       3.8,       
+NODE,    111,       5.5,       9.0,       3.8,       
+NODE,    112,       5.5,      12.2,       3.8,       
+NODE,    200,       0.0,       0.0,       7.3,       
+NODE,    201,       0.0,       9.0,       7.3,       
+NODE,    202,       0.0,      12.2,       7.3,       
+NODE,    210,       5.5,       0.0,       7.3,       
+NODE,    211,       5.5,       9.0,       7.3,       
+NODE,    212,       5.5,      12.2,       7.3,       
+
+# --- ELEMENT(ELEM) ---
+# ELEM,   ID,     Ni,     Nj,    SEC,     Beta
+#     ,     ,       ,       ,       ,      deg
+
+# 1F foundation beams (z=0)
+ELEM,      0,      0,     10,      4,      0.0
+ELEM,      1,      1,     11,      4,      0.0
+ELEM,      2,      2,     12,      4,      0.0
+ELEM,      3,      0,      1,      5,      0.0
+ELEM,      4,     10,     11,      5,      0.0
+ELEM,      5,      1,      2,      6,      0.0
+ELEM,      6,     11,     12,      6,      0.0
+# 2F beams (z=3.8)
+ELEM,      7,    100,    110,      1,      0.0
+ELEM,      8,    101,    111,      1,      0.0
+ELEM,      9,    102,    112,      1,      0.0
+ELEM,     10,    100,    101,      2,      0.0
+ELEM,     11,    110,    111,      2,      0.0
+ELEM,     12,    101,    102,      3,      0.0
+ELEM,     13,    111,    112,      3,      0.0
+# R beams (z=7.3)
+ELEM,     14,    200,    210,      1,      0.0
+ELEM,     15,    201,    211,      1,      0.0
+ELEM,     16,    202,    212,      1,      0.0
+ELEM,     17,    200,    201,      2,      0.0
+ELEM,     18,    210,    211,      2,      0.0
+ELEM,     19,    201,    202,      3,      0.0
+ELEM,     20,    211,    212,      3,      0.0
+# Columns 1F-2F
+ELEM,     21,      0,    100,      0,      0.0
+ELEM,     22,      1,    101,      0,      0.0
+ELEM,     23,      2,    102,      0,      0.0
+ELEM,     24,     10,    110,      0,      0.0
+ELEM,     25,     11,    111,      0,      0.0
+ELEM,     26,     12,    112,      0,      0.0
+# Columns 2F-R
+ELEM,     27,    100,    200,      0,      0.0
+ELEM,     28,    101,    201,      0,      0.0
+ELEM,     29,    102,    202,      0,      0.0
+ELEM,     30,    110,    210,      0,      0.0
+ELEM,     31,    111,    211,      0,      0.0
+ELEM,     32,    112,    212,      0,      0.0
+
+# --- CONSTRAINT(CONS) ---
+# CONS, NODE,   TX,   TY,   TZ,   RX,   RY,   RZ
+#   TX..RZ: 0=FREE  1=FIXED
+
+#    NODE ID,   TX,   TY,   TZ,   RX,   RY,   RZ
+
+CONS,      0,    1,    1,    1,    1,    1,    1
+CONS,      1,    1,    1,    1,    1,    1,    1
+CONS,      2,    1,    1,    1,    1,    1,    1
+CONS,     10,    1,    1,    1,    1,    1,    1
+CONS,     11,    1,    1,    1,    1,    1,    1
+CONS,     12,    1,    1,    1,    1,    1,    1
+
+# --- AREA LOAD(ALOD) ---
+# ALOD,   LC,       PX,       PY,       PZ,     E1,     E2,     E3,     E4
+#     ,     ,    kN/m2,    kN/m2,    kN/m2,       ,       ,       ,       
+#   E4: optional for triangular panels
+
+# LC0 floor / roof 10 kN/m2 (dead + live), including 1F
+ALOD,      0,      0.0,      0.0,    -10.0,      0,      4,      1,      3
+ALOD,      0,      0.0,      0.0,    -10.0,      1,      6,      2,      5
+ALOD,      0,      0.0,      0.0,    -10.0,      7,     11,      8,     10
+ALOD,      0,      0.0,      0.0,    -10.0,      8,     13,      9,     12
+ALOD,      0,      0.0,      0.0,    -10.0,     14,     18,     15,     17
+ALOD,      0,      0.0,      0.0,    -10.0,     15,     20,     16,     19
+
+# LC1 2 kN/m2 on exterior XZ walls (Y=0 and Y=12.2), PY=-2 from +Y
+ALOD,      1,      0.0,     -2.0,      0.0,      0,     24,      7,     21
+ALOD,      1,      0.0,     -2.0,      0.0,      7,     30,     14,     27
+ALOD,      1,      0.0,     -2.0,      0.0,      2,     26,      9,     23
+ALOD,      1,      0.0,     -2.0,      0.0,      9,     32,     16,     29
+
+# --- GRAVITY LOAD(GLOD) ---
+# GLOD,   LC,         GX,         GY,         GZ
+#     ,     ,       m/s2,       m/s2,       m/s2
+
+GLOD,      0,        0.0,        0.0,   -9.80665

@@ -2,8 +2,6 @@ import argparse
 import os
 import sys
 
-_STB_VERSION = "0.1.0"
-
 # Exit codes for scripts and Grasshopper wrappers.
 EXIT_OK = 0
 EXIT_INPUT = 1
@@ -15,6 +13,13 @@ def _ensure_project_root_on_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if root not in sys.path:
         sys.path.insert(0, root)
+
+
+def _stb_version():
+    _ensure_project_root_on_path()
+    from stb_engine.version import __version__
+
+    return __version__
 
 
 def _stderr(msg):
@@ -50,7 +55,7 @@ def _solve_with_stdout_control(mdl, quiet):
 
 
 def cmd_version(args):
-    print("stb " + _STB_VERSION)
+    print("stb " + _stb_version())
     return EXIT_OK
 
 
@@ -58,7 +63,7 @@ def cmd_doctor(args):
     _ensure_project_root_on_path()
     from stb_engine import runtime
 
-    print("stb " + _STB_VERSION)
+    print("stb " + _stb_version())
     for line in runtime.describe():
         print("  " + line)
 
@@ -79,7 +84,7 @@ def cmd_doctor(args):
         return EXIT_INPUT
 
     if not runtime.is_bundled() and getattr(args, "require_bundled", False):
-        _stderr("This is not the bundled Python of a student install.")
+        _stderr("This is not the bundled Python of an installer-based install.")
         return EXIT_INPUT
 
     return EXIT_OK
@@ -347,7 +352,7 @@ def cmd_report(args):
             project,
             output_format=args.format,
             analysis_text=txt,
-            program_version=_STB_VERSION,
+            program_version=_stb_version(),
         )
     except IOError as ex:
         _stderr(str(ex))
@@ -425,7 +430,7 @@ def _build_parser():
     p_doc.add_argument(
         "--require-bundled",
         action="store_true",
-        help="Fail unless running on the bundled Python of a student install",
+        help="Fail unless running on the bundled Python of an installer-based install",
     )
     p_doc.set_defaults(func=cmd_doctor)
 

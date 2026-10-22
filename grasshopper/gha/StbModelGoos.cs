@@ -234,7 +234,7 @@ namespace StbGrasshopper
 
         public override string TypeName => "STB Load";
 
-        public override string TypeDescription => "STB point, line, or area load";
+        public override string TypeDescription => "STB point, line, area, or gravity load, or a load combination";
 
         public override IGH_Goo Duplicate()
         {
@@ -267,7 +267,7 @@ namespace StbGrasshopper
     public sealed class StbMaterialParameter : GH_Param<StbMaterialGoo>
     {
         public StbMaterialParameter()
-            : base("STb Mat", "Mat", "STB material", "STB", "Model", GH_ParamAccess.item)
+            : base("STb Mat", "Mat", "STB material", StbCategories.Tab, StbCategories.Param, GH_ParamAccess.item)
         {
         }
 
@@ -281,7 +281,7 @@ namespace StbGrasshopper
     public sealed class StbSectionParameter : GH_Param<StbSectionGoo>
     {
         public StbSectionParameter()
-            : base("STb Section", "Sec", "STB section", "STB", "Model", GH_ParamAccess.item)
+            : base("STb Section", "Sec", "STB section", StbCategories.Tab, StbCategories.Param, GH_ParamAccess.item)
         {
         }
 
@@ -295,7 +295,7 @@ namespace StbGrasshopper
     public sealed class StbElementParameter : GH_Param<StbElementGoo>
     {
         public StbElementParameter()
-            : base("STb Element", "Elem", "STB element", "STB", "Model", GH_ParamAccess.item)
+            : base("STb Element", "Elem", "STB element", StbCategories.Tab, StbCategories.Param, GH_ParamAccess.item)
         {
         }
 
@@ -309,7 +309,7 @@ namespace StbGrasshopper
     public sealed class StbSupportParameter : GH_Param<StbSupportGoo>
     {
         public StbSupportParameter()
-            : base("STb Support", "Sup", "STB support", "STB", "Model", GH_ParamAccess.item)
+            : base("STb Support", "Sup", "STB support", StbCategories.Tab, StbCategories.Param, GH_ParamAccess.item)
         {
         }
 
@@ -323,7 +323,7 @@ namespace StbGrasshopper
     public sealed class StbModelParameter : GH_Param<StbModelGoo>
     {
         public StbModelParameter()
-            : base("STb Model", "STb Model", "Structural Toolbox model and optional results", "STB", "Model", GH_ParamAccess.item)
+            : base("STb Model", "STb Model", "Structural Toolbox model and optional results", StbCategories.Tab, StbCategories.Param, GH_ParamAccess.item)
         {
         }
 
@@ -335,7 +335,7 @@ namespace StbGrasshopper
     public sealed class StbLoadParameter : GH_Param<StbLoadGoo>
     {
         public StbLoadParameter()
-            : base("STb Load", "Ld", "STB load", "STB", "Model", GH_ParamAccess.item)
+            : base("STb Load", "Ld", "STB load", StbCategories.Tab, StbCategories.Param, GH_ParamAccess.item)
         {
         }
 

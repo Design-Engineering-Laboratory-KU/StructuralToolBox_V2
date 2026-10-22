@@ -1,0 +1,32 @@
+#!/bin/bash
+# pkg が新しいファイルを置く前に、以前のインストールを削除する（ユーザーの .dat などは残す）。
+# 「自分専用にインストール」ではユーザー権限で、それ以外では root で呼ばれる。
+set -u
+
+LOG="/tmp/stb-install.log"
+if touch "$LOG" 2>/dev/null; then
+  exec >>"$LOG" 2>&1
+fi
+echo "=== preinstall $(date) uid=$(id -u) target=${2:-}"
+
+if [[ "$(id -u)" -eq 0 ]]; then
+  CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+  if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
+    echo "ログイン中のユーザーを特定できません。"
+    exit 1
+  fi
+  USER_HOME="$(dscl . -read "/Users/${CONSOLE_USER}" NFSHomeDirectory | awk '{print $2}')"
+else
+  USER_HOME="$HOME"
+fi
+
+SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
+DEFAULT_DEST="${USER_HOME}/Library/Application Support/StructuralToolbox"
+DEST="${2:-$DEFAULT_DEST}"
+echo "dest=$DEST"
+
+STB_USER_HOME="$USER_HOME" /bin/bash "$SCRIPTS/clean_old_install.sh" \
+  "$DEST" "$SCRIPTS/install_manifest.txt" "$DEFAULT_DEST"
+RC=$?
+echo "clean_old_install exit code: $RC"
+exit "$RC"

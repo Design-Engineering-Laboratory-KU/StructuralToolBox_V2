@@ -6,6 +6,12 @@ namespace StbGrasshopper
 {
     public static class StbProcessRunner
     {
+        /// <summary>
+        /// Written next to the copied .gha by the first-time setup
+        /// (installer/setup_runtime.py); holds the install folder.
+        /// </summary>
+        internal const string LocationFileName = "StbGrasshopper.location.txt";
+
         public static StbAnalyzeResult Analyze(
             string datPath,
             string pythonExe,
@@ -76,6 +82,15 @@ namespace StbGrasshopper
                 CreateNoWindow = true
             };
 
+            // The PC's own Python settings make the bundled interpreter load a
+            // foreign standard library and crash.
+            foreach (var name in new[] { "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONUSERBASE", "VIRTUAL_ENV" })
+            {
+                psi.Environment.Remove(name);
+            }
+
+            psi.Environment["PYTHONNOUSERSITE"] = "1";
+
             using (var process = Process.Start(psi))
             {
                 var stdout = process.StandardOutput.ReadToEnd();
@@ -127,7 +142,7 @@ namespace StbGrasshopper
 
         /// <summary>
         /// Finds the Python that ships with Structural Toolbox. A Python the
-        /// student installed for another course would lack the solver
+        /// user installed for something else would lack the solver
         /// libraries, so this never falls back to one found on PATH.
         /// </summary>
         private static bool TryResolveInterpreter(
@@ -182,7 +197,15 @@ namespace StbGrasshopper
                 roots.Add(Path.GetFullPath(repoRoot));
             }
 
-            // Install folder used by the student installers.
+            // Install folder recorded by the first-time setup, so a non-default
+            // install location chosen in the installer is found.
+            var recorded = RecordedInstallRoot();
+            if (recorded != null)
+            {
+                roots.Add(recorded);
+            }
+
+            // Default install folder of the Windows and macOS installers.
             var appSupport = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             if (!string.IsNullOrWhiteSpace(appSupport))
             {
@@ -211,6 +234,32 @@ namespace StbGrasshopper
                 }
             }
             return unique.ToArray();
+        }
+
+        private static string RecordedInstallRoot()
+        {
+            try
+            {
+                var here = Path.GetDirectoryName(typeof(StbProcessRunner).Assembly.Location);
+                if (string.IsNullOrWhiteSpace(here))
+                {
+                    return null;
+                }
+
+                var file = Path.Combine(here, LocationFileName);
+                if (!File.Exists(file))
+                {
+                    return null;
+                }
+
+                var root = File.ReadAllText(file).Trim();
+                return string.IsNullOrWhiteSpace(root) ? null : Path.GetFullPath(root);
+            }
+            catch (Exception)
+            {
+                // An unreadable location file only means falling back to the defaults.
+                return null;
+            }
         }
 
         private static string VenvPython(string root)

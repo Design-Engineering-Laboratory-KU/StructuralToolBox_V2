@@ -14,8 +14,11 @@ namespace StbGrasshopper
 {
     public sealed class StbForceDiagramComponent : GH_Component
     {
+        private static readonly Color MemberColor = Color.Black;
+
         private readonly List<DiagramSegment> _segments = new List<DiagramSegment>();
         private readonly List<GuideLine> _constructionLines = new List<GuideLine>();
+        private readonly List<Line> _memberLines = new List<Line>();
         private readonly List<ValueLabel> _valueLabels = new List<ValueLabel>();
         private BoundingBox _clippingBox = BoundingBox.Empty;
         private double _legendMaximum;
@@ -39,15 +42,16 @@ namespace StbGrasshopper
                 "STB Force Diagram",
                 "STB FDiagram",
                 "Draw a selected member force diagram and output its values in kN or kNm.",
-                "STB",
-                "Results")
+                StbCategories.Tab,
+                StbCategories.Post)
         {
         }
 
         public override Guid ComponentGuid =>
             new Guid("7a7f6f8c-62a2-4e07-9ef3-0b1c8d6e4f51");
+        public override GH_Exposure Exposure => GH_Exposure.secondary;
 
-        protected override Bitmap Icon => StbIcons.Forces;
+        protected override Bitmap Icon => StbIcons.ForceDiagram;
 
         public override BoundingBox ClippingBox => _clippingBox;
 
@@ -76,6 +80,7 @@ namespace StbGrasshopper
         {
             _segments.Clear();
             _constructionLines.Clear();
+            _memberLines.Clear();
             _valueLabels.Clear();
             _clippingBox = BoundingBox.Empty;
             _legendMaximum = 0.0;
@@ -123,6 +128,7 @@ namespace StbGrasshopper
             }
 
             var rawSegments = new List<RawDiagramSegment>();
+            var hasElementLoadSegments = results.ElementLoadSegments.Count > 0;
             foreach (var force in results.ElementForces)
             {
                 if (!StbLoadCaseFilter.Matches(loadCase, force.LoadCase)
@@ -133,17 +139,21 @@ namespace StbGrasshopper
                     continue;
                 }
 
-                var axis = end - start;
-                if (axis.Length <= 1e-9)
+                var memberLine = new Line(start, end);
+                if (memberLine.Length <= 1e-9)
                 {
                     continue;
                 }
 
-                axis.Unitize();
-                var localY = LocalYAxis(axis);
-                var localZ = Vector3d.CrossProduct(axis, localY);
-                localZ.Unitize();
-                var diagramDirection = DiagramDirection(componentInfo.Label, localY, localZ);
+                _memberLines.Add(memberLine);
+                ExtendClippingBox(memberLine.BoundingBox);
+                StbMemberAxes.Compute(memberLine, element.Beta, out var axis, out var localY, out var localZ);
+                var diagramDirection = DiagramDirection(
+                    componentInfo.Label,
+                    axis,
+                    localY,
+                    localZ,
+                    StbMemberAxes.IsVertical(memberLine));
                 var textNormal = Vector3d.CrossProduct(axis, diagramDirection);
                 textNormal.Unitize();
                 GetForceValues(force, componentInfo, out var valueI, out var valueCenter, out var valueJ);
@@ -151,46 +161,94 @@ namespace StbGrasshopper
                 {
                     continue;
                 }
-                _legendMaximum = Math.Max(_legendMaximum, Math.Max(Math.Abs(valueI), Math.Max(Math.Abs(valueCenter), Math.Abs(valueJ))));
-
-                var points = new List<Point3d>();
-                for (var i = 0; i <= divisions; i++)
+                if (hasElementLoadSegments)
                 {
-                    var t = (double)i / divisions;
-                    var basePoint = start + (end - start) * t;
-                    var value = InterpolateForce(valueI, valueCenter, valueJ, t);
-                    points.Add(basePoint + diagramDirection * (value * _diagramScale));
-                }
-
-                for (var i = 0; i < divisions; i++)
-                {
-                    var t0 = (double)i / divisions;
-                    var t1 = (double)(i + 1) / divisions;
-                    var value = InterpolateForce(valueI, valueCenter, valueJ, t0);
-                    var centerValue = InterpolateForce(valueI, valueCenter, valueJ, 0.5 * (t0 + t1));
-                    var line = new Line(points[i], points[i + 1]);
-                    rawSegments.Add(new RawDiagramSegment(
-                        line,
-                        value,
-                        centerValue,
-                        force.ElementId,
-                        textNormal,
-                        points[i] + diagramDirection * LabelOffset(value),
-                        points[i + 1] + diagramDirection * LabelOffset(InterpolateForce(valueI, valueCenter, valueJ, t1)),
-                        i == divisions - 1,
-                        InterpolateForce(valueI, valueCenter, valueJ, t1)));
-                    ExtendClippingBox(line.BoundingBox);
-
-                    var baseline = new Line(
-                        start + (end - start) * t0,
-                        start + (end - start) * t1);
-                    _constructionLines.Add(new GuideLine(baseline, centerValue));
-                    _constructionLines.Add(new GuideLine(new Line(baseline.From, line.From), value));
-                    if (i == divisions - 1)
+                    var loadSegments = results.GetElementLoadSegments(force.LoadCase, force.ElementId);
+                    var stations = StbSectionForces.Stations(divisions, loadSegments);
+                    var values = new List<double>();
+                    var points = new List<Point3d>();
+                    for (var i = 0; i < stations.Count; i++)
                     {
-                        _constructionLines.Add(new GuideLine(new Line(baseline.To, line.To), centerValue));
+                        var t = stations[i];
+                        var value = ExactForceValue(
+                            StbSectionForces.Evaluate(force, memberLine.Length, loadSegments, t),
+                            componentInfo.Label);
+                        values.Add(value);
+                        points.Add(start + (end - start) * t + diagramDirection * (value * _diagramScale));
+                        _legendMaximum = Math.Max(_legendMaximum, Math.Abs(value));
                     }
-                    ExtendClippingBox(baseline.BoundingBox);
+
+                    for (var i = 0; i < stations.Count - 1; i++)
+                    {
+                        var t0 = stations[i];
+                        var t1 = stations[i + 1];
+                        var value = values[i];
+                        var endValue = values[i + 1];
+                        var centerValue = ExactForceValue(
+                            StbSectionForces.Evaluate(force, memberLine.Length, loadSegments, 0.5 * (t0 + t1)),
+                            componentInfo.Label);
+                        var line = new Line(points[i], points[i + 1]);
+                        rawSegments.Add(new RawDiagramSegment(
+                            line,
+                            value,
+                            centerValue,
+                            force.ElementId,
+                            textNormal,
+                            points[i] + diagramDirection * LabelOffset(value),
+                            points[i + 1] + diagramDirection * LabelOffset(endValue),
+                            i == stations.Count - 2,
+                            endValue));
+                        ExtendClippingBox(line.BoundingBox);
+
+                        var baseFrom = start + (end - start) * t0;
+                        var baseTo = start + (end - start) * t1;
+                        _constructionLines.Add(new GuideLine(new Line(baseFrom, line.From), value));
+                        if (i == stations.Count - 2)
+                        {
+                            _constructionLines.Add(new GuideLine(new Line(baseTo, line.To), centerValue));
+                        }
+                    }
+                }
+                else
+                {
+                    _legendMaximum = Math.Max(_legendMaximum, Math.Max(Math.Abs(valueI), Math.Max(Math.Abs(valueCenter), Math.Abs(valueJ))));
+
+                    var points = new List<Point3d>();
+                    for (var i = 0; i <= divisions; i++)
+                    {
+                        var t = (double)i / divisions;
+                        var basePoint = start + (end - start) * t;
+                        var value = InterpolateForce(valueI, valueCenter, valueJ, t);
+                        points.Add(basePoint + diagramDirection * (value * _diagramScale));
+                    }
+
+                    for (var i = 0; i < divisions; i++)
+                    {
+                        var t0 = (double)i / divisions;
+                        var t1 = (double)(i + 1) / divisions;
+                        var value = InterpolateForce(valueI, valueCenter, valueJ, t0);
+                        var centerValue = InterpolateForce(valueI, valueCenter, valueJ, 0.5 * (t0 + t1));
+                        var line = new Line(points[i], points[i + 1]);
+                        rawSegments.Add(new RawDiagramSegment(
+                            line,
+                            value,
+                            centerValue,
+                            force.ElementId,
+                            textNormal,
+                            points[i] + diagramDirection * LabelOffset(value),
+                            points[i + 1] + diagramDirection * LabelOffset(InterpolateForce(valueI, valueCenter, valueJ, t1)),
+                            i == divisions - 1,
+                            InterpolateForce(valueI, valueCenter, valueJ, t1)));
+                        ExtendClippingBox(line.BoundingBox);
+
+                        var baseFrom = start + (end - start) * t0;
+                        var baseTo = start + (end - start) * t1;
+                        _constructionLines.Add(new GuideLine(new Line(baseFrom, line.From), value));
+                        if (i == divisions - 1)
+                        {
+                            _constructionLines.Add(new GuideLine(new Line(baseTo, line.To), centerValue));
+                        }
+                    }
                 }
             }
 
@@ -215,7 +273,7 @@ namespace StbGrasshopper
             var outputElementIds = new List<int>();
             foreach (var segment in rawSegments)
             {
-                var color = ForceColor(Math.Abs(segment.CenterValue) / _legendMaximum);
+                var color = StbLegend.ColorFor(Math.Abs(segment.CenterValue) / _legendMaximum);
                 _segments.Add(new DiagramSegment(segment.Line, segment.Value, segment.ElementId, segment.TextNormal, color));
                 _valueLabels.Add(new ValueLabel(segment.StartPoint, segment.Value, segment.TextNormal, color));
                 if (segment.IsLast)
@@ -226,7 +284,6 @@ namespace StbGrasshopper
                 outputValues.Add(segment.Value);
                 outputElementIds.Add(segment.ElementId);
             }
-
             da.SetDataList(0, outputLines);
             da.SetDataList(1, outputValues);
             da.SetDataList(2, outputElementIds);
@@ -424,11 +481,13 @@ namespace StbGrasshopper
 
         public override void DrawViewportWires(IGH_PreviewArgs args)
         {
+            args.Display.DrawLines(_memberLines, MemberColor, 2);
+
             foreach (var guide in _constructionLines)
             {
                 args.Display.DrawLine(
                     guide.Line,
-                    ForceColor(Math.Abs(guide.Value) / _legendMaximum),
+                    StbLegend.ColorFor(Math.Abs(guide.Value) / _legendMaximum),
                     2);
             }
 
@@ -461,7 +520,7 @@ namespace StbGrasshopper
 
             if (_showLegend && _segments.Count > 0)
             {
-                DrawLegend(args);
+                StbLegend.Draw(args, "|" + _componentLabel + "| [" + _unitLabel + "]", _legendMaximum);
             }
         }
 
@@ -494,78 +553,32 @@ namespace StbGrasshopper
             return (value < 0.0 ? -1.0 : 1.0) * _textSize * 0.5;
         }
 
-        private static Vector3d LocalYAxis(Vector3d axis)
-        {
-            var localY = Vector3d.CrossProduct(Vector3d.ZAxis, axis);
-            if (localY.Length <= 1e-9)
-            {
-                localY = Vector3d.XAxis;
-            }
-
-            localY.Unitize();
-            return localY;
-        }
-
-        private static Vector3d DiagramDirection(string label, Vector3d localY, Vector3d localZ)
+        /// <summary>
+        /// Offset direction for a positive value, matching the browser GUI
+        /// (stb_gui/static/viewer.js buildForceDiagrams). Positive (clockwise)
+        /// shear goes on the +local-axis side, i.e. above a beam as in Japanese
+        /// practice. The solver reports vertical members with flipped shear and
+        /// moment signs, so their directions flip to keep moments on the
+        /// tension side and shear consistent with them.
+        /// </summary>
+        private static Vector3d DiagramDirection(string label, Vector3d axis, Vector3d localY, Vector3d localZ, bool vertical)
         {
             switch (label)
             {
                 case "Vy":
-                case "Mz":
-                    return localY;
+                    return vertical ? -localY : localY;
                 case "Vz":
+                    return vertical ? -localZ : localZ;
                 case "My":
-                    if (label == "My")
-                    {
-                        return -localZ;
-                    }
-
-                    return localZ;
+                    return vertical ? localZ : -localZ;
+                case "Mz":
+                    return vertical ? -localY : localY;
                 case "Nx":
+                    return vertical && axis.Z < 0.0 ? -localZ : localZ;
                 case "Mx":
                 default:
                     return localZ;
             }
-        }
-
-        private void DrawLegend(IGH_PreviewArgs args)
-        {
-            const int width = 150;
-            const int barXOffset = 14;
-            const int barYOffset = 38;
-            const int barWidth = 24;
-            const int barHeight = 250;
-            const int steps = 7;
-            const int legendHeight = barYOffset + barHeight;
-            var legendTextColor = Color.FromArgb(55, 60, 65);
-
-            var viewport = args.Viewport.Bounds;
-            var left = Math.Max(viewport.Left + 8, viewport.Right - width - 18);
-            var top = Math.Max(viewport.Top + 8, viewport.Top + (viewport.Height - legendHeight) / 2);
-            args.Display.Draw2dText(_componentLabel + " [" + _unitLabel + "]", legendTextColor, new Point2d(left + 10, top + 11), false, 18);
-
-            for (var i = 0; i < steps; i++)
-            {
-                var normalized = 1.0 - (double)i / (steps - 1);
-                var y0 = top + barYOffset + i * barHeight / steps;
-                var y1 = top + barYOffset + (i + 1) * barHeight / steps;
-                args.Display.Draw2dRectangle(
-                    new Rectangle(left + barXOffset, y0, barWidth, Math.Max(1, y1 - y0 + 1)),
-                    ForceColor(normalized), 0, ForceColor(normalized));
-            }
-
-            for (var i = 0; i <= steps; i++)
-            {
-                var normalized = (double)i / steps;
-                var value = _legendMaximum * (1.0 - 2.0 * normalized);
-                var y = top + barYOffset + i * barHeight / steps - 5;
-                DrawLegendValue(args, left + 48, y, value, legendTextColor);
-            }
-        }
-
-        private static void DrawLegendValue(IGH_PreviewArgs args, int x, int y, double value, Color textColor)
-        {
-            args.Display.Draw2dText(value.ToString("0.0", CultureInfo.InvariantCulture), textColor, new Point2d(x, y), false, 18);
         }
 
         private static bool TryGetComponent(int component, out ForceComponentInfo info)
@@ -599,26 +612,17 @@ namespace StbGrasshopper
             return valueI * l0 + valueCenter * lc + valueJ * l1;
         }
 
-        private static Color ForceColor(double normalized)
+        private static double ExactForceValue(SectionForceValues values, string label)
         {
-            if (double.IsNaN(normalized) || double.IsInfinity(normalized))
+            switch (label)
             {
-                return Color.FromArgb(35, 70, 180);
+                case "Nx": return values.N;
+                case "Vy": return values.Qy;
+                case "Vz": return values.Qz;
+                case "Mx": return values.Mx;
+                case "My": return values.My;
+                default: return values.Mz;
             }
-
-            var t = Math.Max(0.0, Math.Min(1.0, normalized));
-            var palette = new[]
-            {
-                Color.FromArgb(35, 70, 180),
-                Color.FromArgb(35, 120, 220),
-                Color.FromArgb(0, 190, 220),
-                Color.FromArgb(35, 170, 90),
-                Color.FromArgb(245, 220, 40),
-                Color.FromArgb(245, 145, 25),
-                Color.FromArgb(215, 35, 35),
-            };
-            var index = (int)Math.Floor(t * palette.Length);
-            return palette[Math.Min(palette.Length - 1, index)];
         }
 
         private static bool IsFinite(double value)

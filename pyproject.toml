@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structural-toolbox"
-version = "0.1.0"
+dynamic = ["version"]
 description = "3D linear static analysis for frame structures"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,6 +23,9 @@ gui = [
 
 [project.scripts]
 stb = "stb_cli.main:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.setuptools.packages.find]
 where = ["."]

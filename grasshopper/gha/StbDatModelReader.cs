@@ -23,6 +23,9 @@ namespace StbGrasshopper
             var pointLoadRecords = new List<PointLoadRecord>();
             var lineLoadRecords = new List<LineLoadRecord>();
             var areaLoadRecords = new List<AreaLoadRecord>();
+            var jointRecords = new Dictionary<int, double?[]>();
+            var typedLoads = new List<StbLoadModel>();
+            var untyped = new SortedDictionary<string, int>();
 
             foreach (var rawLine in File.ReadLines(datPath))
             {
@@ -93,12 +96,36 @@ namespace StbGrasshopper
                             new Vector3d(Number(parts, 6), Number(parts, 7), Number(parts, 8))));
                         break;
                     case "ELOD":
+                        var elementId = Integer(parts, 1);
+                        var t0Optional = OptionalNumber(parts, 10);
+                        var t1Optional = OptionalNumber(parts, 11);
+                        var t0 = 0.0;
+                        var t1 = 1.0;
+                        if (t0Optional.HasValue || t1Optional.HasValue)
+                        {
+                            if (!t0Optional.HasValue || !t1Optional.HasValue)
+                            {
+                                throw new FormatException(
+                                    "ELOD on element " + elementId + " must include both T0 and T1 or neither.");
+                            }
+
+                            t0 = t0Optional.Value;
+                            t1 = t1Optional.Value;
+                            if (t0 < 0.0 || t1 > 1.0 || t0 >= t1 || t1 - t0 <= 1e-9)
+                            {
+                                throw new FormatException(
+                                    "ELOD on element " + elementId + " has invalid T0/T1 range.");
+                            }
+                        }
+
                         lineLoadRecords.Add(new LineLoadRecord(
-                            Integer(parts, 1),
+                            elementId,
                             Integer(parts, 2),
                             Integer(parts, 3) != 0,
                             new Vector3d(Number(parts, 4), Number(parts, 5), Number(parts, 6)),
-                            new Vector3d(Number(parts, 7), Number(parts, 8), Number(parts, 9))));
+                            new Vector3d(Number(parts, 7), Number(parts, 8), Number(parts, 9)),
+                            t0,
+                            t1));
                         break;
                     case "ALOD":
                         var boundaryIds = new List<int>();
@@ -112,6 +139,42 @@ namespace StbGrasshopper
                             new Vector3d(Number(parts, 2), Number(parts, 3), Number(parts, 4)),
                             boundaryIds));
                         break;
+                    case "GLOD":
+                        typedLoads.Add(new StbLoadModel
+                        {
+                            Kind = StbLoadKind.Gravity,
+                            LoadCase = Integer(parts, 1),
+                            Acceleration = new Vector3d(Number(parts, 2), Number(parts, 3), Number(parts, 4)),
+                        });
+                        break;
+                    case "EJNT":
+                        var springs = new double?[4];
+                        for (var i = 0; i < 4; i++)
+                        {
+                            springs[i] = OptionalNumber(parts, i + 2);
+                        }
+
+                        jointRecords[Integer(parts, 1)] = springs;
+                        break;
+                    case "LCMB":
+                        var combination = new StbLoadModel
+                        {
+                            Kind = StbLoadKind.Combination,
+                            LoadCase = Integer(parts, 1),
+                            CombinationName = Text(parts, 2, string.Empty),
+                        };
+                        for (var i = 3; i + 1 < parts.Length; i += 2)
+                        {
+                            if (string.IsNullOrWhiteSpace(parts[i]) || string.IsNullOrWhiteSpace(parts[i + 1])) continue;
+                            combination.CombinationFactors.Add(Number(parts, i));
+                            combination.CombinationCases.Add(Integer(parts, i + 1));
+                        }
+
+                        typedLoads.Add(combination);
+                        break;
+                    default:
+                        untyped[record] = untyped.TryGetValue(record, out var count) ? count + 1 : 1;
+                        break;
                 }
             }
 
@@ -120,6 +183,7 @@ namespace StbGrasshopper
                 DatPath = Path.GetFullPath(datPath),
                 DatText = File.ReadAllText(datPath),
             };
+            foreach (var pair in untyped) model.UntypedRecordCounts[pair.Key] = pair.Value;
 
             var elementsById = new Dictionary<int, StbElementModel>();
             foreach (var record in elementRecords)
@@ -138,6 +202,14 @@ namespace StbGrasshopper
                     Section = section,
                     Beta = record.Beta,
                 };
+                if (jointRecords.TryGetValue(record.ElementId, out var springs))
+                {
+                    element.JointRyi = springs[0];
+                    element.JointRzi = springs[1];
+                    element.JointRyj = springs[2];
+                    element.JointRzj = springs[3];
+                }
+
                 model.Elements.Add(element);
                 elementsById[record.ElementId] = element;
             }
@@ -186,6 +258,8 @@ namespace StbGrasshopper
                         IsGlobal = record.IsGlobal,
                         LoadAtI = record.LoadAtI,
                         LoadAtJ = record.LoadAtJ,
+                        T0 = record.T0,
+                        T1 = record.T1,
                     });
                 }
             }
@@ -212,7 +286,18 @@ namespace StbGrasshopper
                 }
             }
 
+            model.Loads.AddRange(typedLoads);
             return model;
+        }
+
+        private static double? OptionalNumber(string[] parts, int index)
+        {
+            if (index >= parts.Length || string.IsNullOrWhiteSpace(parts[index]))
+            {
+                return null;
+            }
+
+            return double.Parse(parts[index].Trim(), CultureInfo.InvariantCulture);
         }
 
         private static string Text(string[] parts, int index, string fallback)
@@ -298,13 +383,22 @@ namespace StbGrasshopper
 
         private sealed class LineLoadRecord
         {
-            public LineLoadRecord(int elementId, int loadCase, bool isGlobal, Vector3d loadAtI, Vector3d loadAtJ)
+            public LineLoadRecord(
+                int elementId,
+                int loadCase,
+                bool isGlobal,
+                Vector3d loadAtI,
+                Vector3d loadAtJ,
+                double t0,
+                double t1)
             {
                 ElementId = elementId;
                 LoadCase = loadCase;
                 IsGlobal = isGlobal;
                 LoadAtI = loadAtI;
                 LoadAtJ = loadAtJ;
+                T0 = t0;
+                T1 = t1;
             }
 
             public int ElementId { get; }
@@ -312,6 +406,8 @@ namespace StbGrasshopper
             public bool IsGlobal { get; }
             public Vector3d LoadAtI { get; }
             public Vector3d LoadAtJ { get; }
+            public double T0 { get; }
+            public double T1 { get; }
         }
 
         private sealed class AreaLoadRecord

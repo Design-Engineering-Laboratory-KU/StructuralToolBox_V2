@@ -160,6 +160,15 @@ namespace StbGrasshopper
         public StbSectionModel Section { get; set; }
         public double Beta { get; set; }
 
+        // EJNT rotational springs in kNm/rad: null = rigid, 0 = pin.
+        public double? JointRyi { get; set; }
+        public double? JointRzi { get; set; }
+        public double? JointRyj { get; set; }
+        public double? JointRzj { get; set; }
+
+        public bool HasJoint =>
+            JointRyi.HasValue || JointRzi.HasValue || JointRyj.HasValue || JointRzj.HasValue;
+
         public StbElementModel Duplicate()
         {
             return new StbElementModel
@@ -168,12 +177,35 @@ namespace StbGrasshopper
                 Line = Line,
                 Section = Section?.Duplicate(),
                 Beta = Beta,
+                JointRyi = JointRyi,
+                JointRzi = JointRzi,
+                JointRyj = JointRyj,
+                JointRzj = JointRzj,
             };
+        }
+
+        public string ToEjntRecord(int elementId)
+        {
+            return "EJNT,"
+                + elementId.ToString(CultureInfo.InvariantCulture)
+                + ","
+                + OptionalNumber(JointRyi)
+                + ","
+                + OptionalNumber(JointRzi)
+                + ","
+                + OptionalNumber(JointRyj)
+                + ","
+                + OptionalNumber(JointRzj);
         }
 
         public override string ToString()
         {
-            return Name;
+            return HasJoint ? Name + " (EJNT)" : Name;
+        }
+
+        private static string OptionalNumber(double? value)
+        {
+            return value.HasValue ? StbRecord.Number(value.Value) : string.Empty;
         }
     }
 
@@ -236,12 +268,16 @@ namespace StbGrasshopper
         public string DatText { get; set; } = string.Empty;
         public string DatPath { get; set; } = string.Empty;
 
+        // Record type -> count for .dat records not represented by typed objects.
+        public SortedDictionary<string, int> UntypedRecordCounts { get; } = new SortedDictionary<string, int>();
+
         public StbModelModel Duplicate()
         {
             var copy = new StbModelModel();
             foreach (var element in Elements) copy.Elements.Add(element?.Duplicate());
             foreach (var support in Supports) copy.Supports.Add(support?.Duplicate());
             foreach (var load in Loads) copy.Loads.Add(load?.Duplicate());
+            foreach (var pair in UntypedRecordCounts) copy.UntypedRecordCounts[pair.Key] = pair.Value;
             copy.Results = Results;
             copy.DatText = DatText;
             copy.DatPath = DatPath;
@@ -259,6 +295,8 @@ namespace StbGrasshopper
         Point,
         Line,
         Area,
+        Gravity,
+        Combination,
     }
 
     public sealed class StbLoadModel
@@ -273,7 +311,13 @@ namespace StbGrasshopper
         public bool IsGlobal { get; set; } = true;
         public Vector3d LoadAtI { get; set; }
         public Vector3d LoadAtJ { get; set; }
+        public double T0 { get; set; }
+        public double T1 { get; set; } = 1.0;
         public Vector3d Pressure { get; set; }
+        public Vector3d Acceleration { get; set; }
+        public string CombinationName { get; set; } = string.Empty;
+        public List<double> CombinationFactors { get; } = new List<double>();
+        public List<int> CombinationCases { get; } = new List<int>();
 
         public StbLoadModel Duplicate()
         {
@@ -288,10 +332,54 @@ namespace StbGrasshopper
                 IsGlobal = IsGlobal,
                 LoadAtI = LoadAtI,
                 LoadAtJ = LoadAtJ,
+                T0 = T0,
+                T1 = T1,
                 Pressure = Pressure,
+                Acceleration = Acceleration,
+                CombinationName = CombinationName,
             };
             copy.BoundaryLines.AddRange(BoundaryLines);
+            copy.CombinationFactors.AddRange(CombinationFactors);
+            copy.CombinationCases.AddRange(CombinationCases);
             return copy;
+        }
+
+        public string ToGlodRecord()
+        {
+            return "GLOD,"
+                + LoadCase.ToString(CultureInfo.InvariantCulture)
+                + ","
+                + StbRecord.Number(Acceleration.X)
+                + ","
+                + StbRecord.Number(Acceleration.Y)
+                + ","
+                + StbRecord.Number(Acceleration.Z);
+        }
+
+        public string ToLcmbRecord()
+        {
+            if (CombinationFactors.Count == 0 || CombinationFactors.Count != CombinationCases.Count)
+            {
+                throw new InvalidOperationException(
+                    "Load combination LC" + LoadCase + " needs matching factor and load case lists.");
+            }
+
+            var name = string.IsNullOrWhiteSpace(CombinationName)
+                ? "LC" + LoadCase.ToString(CultureInfo.InvariantCulture)
+                : CombinationName.Trim().Replace(",", " ");
+            var fields = new List<string>
+            {
+                "LCMB",
+                LoadCase.ToString(CultureInfo.InvariantCulture),
+                name,
+            };
+            for (var i = 0; i < CombinationFactors.Count; i++)
+            {
+                fields.Add(StbRecord.Number(CombinationFactors[i]));
+                fields.Add(CombinationCases[i].ToString(CultureInfo.InvariantCulture));
+            }
+
+            return string.Join(",", fields);
         }
 
         public string ToPlodRecord(int nodeId)
@@ -318,7 +406,9 @@ namespace StbGrasshopper
         {
             var loadAtI = reverse ? LoadAtJ : LoadAtI;
             var loadAtJ = reverse ? LoadAtI : LoadAtJ;
-            return "ELOD,"
+            var t0 = reverse ? 1.0 - T1 : T0;
+            var t1 = reverse ? 1.0 - T0 : T1;
+            var record = "ELOD,"
                 + elementId
                 + ","
                 + LoadCase
@@ -336,6 +426,16 @@ namespace StbGrasshopper
                 + StbRecord.Number(loadAtJ.Y)
                 + ","
                 + StbRecord.Number(loadAtJ.Z);
+            const double rangeTol = 1e-12;
+            if (Math.Abs(t0) > rangeTol || Math.Abs(t1 - 1.0) > rangeTol)
+            {
+                record += ","
+                    + StbRecord.Number(t0)
+                    + ","
+                    + StbRecord.Number(t1);
+            }
+
+            return record;
         }
 
         public string ToAlodRecord(IReadOnlyList<int> elementIds)
@@ -366,9 +466,25 @@ namespace StbGrasshopper
             switch (Kind)
             {
                 case StbLoadKind.Line:
-                    return "Line load LC" + LoadCase;
+                    const double rangeTol = 1e-12;
+                    if (Math.Abs(T0) <= rangeTol && Math.Abs(T1 - 1.0) <= rangeTol)
+                    {
+                        return "Line load LC" + LoadCase;
+                    }
+
+                    return "Line load LC"
+                        + LoadCase
+                        + " ["
+                        + StbRecord.Number(T0)
+                        + "-"
+                        + StbRecord.Number(T1)
+                        + "]";
                 case StbLoadKind.Area:
                     return "Area load LC" + LoadCase;
+                case StbLoadKind.Gravity:
+                    return "Gravity load LC" + LoadCase + " " + Acceleration;
+                case StbLoadKind.Combination:
+                    return "Combination LC" + LoadCase + " " + CombinationName;
                 default:
                     return "Point load LC" + LoadCase + " @ " + Point;
             }

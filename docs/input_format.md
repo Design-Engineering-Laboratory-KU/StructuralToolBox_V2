@@ -278,13 +278,28 @@ PLOD, 1, 0, 0.00, 0.00, -5.00, 0.00, 0.00, 0.00
 ### `ELOD` — member distributed load (line load)
 
 ```
-ELOD, ELEM_ID, LC, E_G, WXi, WYi, WZi, WXj, WYj, WZj
+ELOD, ELEM_ID, LC, E_G, WXi, WYi, WZi, WXj, WYj, WZj[, T0, T1]
 ```
 
 | Field | Description |
 |-------|-------------|
 | E_G | `0` = element local axes, `1` = global axes |
 | WXi…WZj | Distributed load intensity at start/end (kN/m) |
+| T0, T1 | Optional load range along the member (both or neither; empty = missing). `t = 0` at node Ni, `t = 1` at node Nj. Default `0, 1` (full length) |
+
+With `T0`/`T1` the load is a linear segment: `Wi` acts at `T0`, `Wj` at `T1`,
+linear in between, and zero outside `[T0, T1]`. It must satisfy
+`0 <= T0 < T1 <= 1` (and `T1 - T0 > 1e-9`), otherwise the input is rejected.
+A triangular or trapezoidal load is written as 2 or 3 `ELOD` records on the
+same element and load case; segments are superposed. Records without
+`T0`/`T1` behave exactly as before, and the `.out` input echo shows `T0, T1`
+only for partial loads.
+
+Example (10 kN/m downward, local axes, on the part of member 1 between 20 % and 40 % of its length):
+
+```
+ELOD, 1, 0, 0, 0.0, 0.0, -10.0, 0.0, 0.0, -10.0, 0.2, 0.4
+```
 
 ---
 
@@ -502,6 +517,7 @@ Result files are text, with records such as:
 | `NDSP` | Nodal displacements (m, rad) |
 | `REAC` | Reactions at constrained nodes: Tx, Ty, Tz (kN), Rx, Ry, Rz (kNm) |
 | `EFRC` | Element end forces (kN, kNm) |
+| `EWLD` | Element load segments for section-force diagrams: `EWLD, LC, ELEM, T0, T1, WXi, WYi, WZi, WXj, WYj, WZj` (local axes, kN/m, WY/WZ in the diagram sign convention of `EFRC`); written only for members that carry line loads |
 
 See `examples/cantilever.out` for a full example.
 

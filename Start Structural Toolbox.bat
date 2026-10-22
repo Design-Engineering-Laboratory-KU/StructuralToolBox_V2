@@ -2,6 +2,13 @@
 chcp 65001 >nul
 title Structural Toolbox
 cd /d "%~dp0"
+REM Ignore the PC's own Python settings; they crash the bundled interpreter.
+set "PYTHONHOME="
+set "PYTHONPATH="
+set "PYTHONSTARTUP="
+set "PYTHONUSERBASE="
+set "VIRTUAL_ENV="
+set "PYTHONNOUSERSITE=1"
 
 REM 単行の if だけを使う（かっこ付きブロックや goto は、日本語を含む .bat で
 REM cmd.exe が行の途中から実行してしまうため使わない）。

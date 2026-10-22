@@ -154,16 +154,28 @@ $\lambda$ は **0 = 完全ピン、1 = 完全剛接合** に対応するよう�
 $R$（$R_{yi}$, $R_{zi}$, $R_{yj}$, $R_{zj}$）は **EJNT** 入力と既定値から決まります。
 
 ```python
-# classes/mdl.py — AssignElemJoints / FillElemJoints（要約）
-if j.ryi is None:   j.Ryi = E * Iy
-else:               j.Ryi = j.ryi * L
-# … Rzi, Ryj, Rzj も同様
-# EJNT 未指定の要素は R = E·I を四端に設定（λ = 1 → 剛接合）
+# classes/mdl.py — _joint_fixity_R（要約）
+if r is None:  R = E * I                  # λ = 1 → 剛接合
+elif r == 0:   R = 0                      # λ = 0 → ピン
+else:
+    gamma = r * L / (E * I)
+    R = E * I * gamma / (gamma + 6)       # λ = γ / (γ + 6)
+# Ryi, Rzi, Ryj, Rzj はそれぞれ自分の入力欄 (ryi, rzi, ryj, rzj) から決まる
 ```
 
-- **EJNT 指定なし（既定）** → $R = EI$ がセットされ、$\lambda = R/(EI) = 1$、すなわち **完全剛接合**。
-- **EJNT で値を指定** → 入力バネ剛性 $r$（`io.py` で kN·m/rad → N·m/rad に換算）に部材長 $L$ を掛けて $R = rL$ とし、$\lambda = rL/(EI)$ の半剛接合になります。
-- バネ値に $0$ を与えれば $\lambda = 0$ で **ピン接合** になります。
+- **EJNT 指定なし・空欄（既定）** → $R = EI$、$\lambda = 1$ で **完全剛接合**。
+- **EJNT に 0** → $\lambda = 0$ で **ピン接合**。
+- **EJNT に正の値 $r$**（kN·m/rad、`io.py` で N·m/rad に換算）→ $\gamma = rL/(EI)$ として $\lambda = \gamma/(\gamma+6)$。
+  §3 の剛性式は、この $\lambda$ で「部材端に回転バネ $r$ を直列に付けた」物理モデルと一致します
+  （$\Phi = 0$ で $k_{11}$, $k_{15}$, $k_{55}$ を確認）。$r \to \infty$ で剛接合に近づき、剛接合を超えることはありません。
+- 負の値はエラーになります。
+
+### 部材荷重の固定端力
+
+ELOD / ALOD / GLOD の等価節点力は、まず両端剛接の公式で求めた後、`classes/solve.py` の
+`_release_fixed_end_forces` で端部バネを通して縮約します（部材内部の端回転を静的縮約）。
+ピン端では固定端モーメントが 0 になり、せん断が再配分されます（例：一端ピンの等分布荷重で $5wL/8$, $3wL/8$, $wL^2/8$）。
+部材力の算出にも同じ補正後の値が使われます。
 
 > **入力単位の注意:** `EJNT` の値は `io.py` 側で $\times 10^3$（kN·m/rad → N·m/rad）の換算を受けます。
 

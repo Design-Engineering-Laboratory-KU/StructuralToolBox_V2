@@ -66,6 +66,7 @@ namespace StbGrasshopper
             }
 
             var geometryRecords = new List<string>();
+            var jointRecords = new List<string>();
             var assembledElements = new List<(int ElementId, Line Line)>();
             var nextNodeId = 1;
             var nextElemId = 1;
@@ -95,6 +96,10 @@ namespace StbGrasshopper
                     + ","
                     + StbRecord.Number(element.Beta));
                 assembledElements.Add((elementId, element.Line));
+                if (element.HasJoint)
+                {
+                    jointRecords.Add(element.ToEjntRecord(elementId));
+                }
             }
 
             var mergeResult = StbNodeMerger.MergeDuplicateNodes(geometryRecords, tolerance);
@@ -105,12 +110,63 @@ namespace StbGrasshopper
             finalRecords.AddRange(materialRecords);
             finalRecords.AddRange(sectionRecords);
             finalRecords.AddRange(mergeResult.Records);
+            finalRecords.AddRange(jointRecords);
 
             var canonicalNodes = ExtractCanonicalNodes(mergeResult.Records);
             foreach (var support in supports ?? Array.Empty<StbSupportModel>())
             {
                 var nodeId = FindNodeId(support.Point, canonicalNodes, tolerance);
                 finalRecords.Add(support.ToConsRecord(nodeId));
+            }
+
+            var combinationRecords = new List<string>();
+            var primaryCases = new HashSet<int>();
+            var combinationCases = new HashSet<int>();
+            foreach (var load in loads ?? Array.Empty<StbLoadModel>())
+            {
+                if (load == null)
+                {
+                    continue;
+                }
+
+                if (load.Kind == StbLoadKind.Combination)
+                {
+                    if (!combinationCases.Add(load.LoadCase))
+                    {
+                        throw new InvalidOperationException(
+                            "Load combination LC" + load.LoadCase + " is defined more than once.");
+                    }
+                }
+                else
+                {
+                    primaryCases.Add(load.LoadCase);
+                }
+            }
+
+            foreach (var lc in combinationCases)
+            {
+                if (primaryCases.Contains(lc))
+                {
+                    throw new InvalidOperationException(
+                        "Load combination LC" + lc + " uses the same number as a load case with loads.");
+                }
+            }
+
+            foreach (var load in loads ?? Array.Empty<StbLoadModel>())
+            {
+                if (load?.Kind != StbLoadKind.Combination)
+                {
+                    continue;
+                }
+
+                foreach (var lc in load.CombinationCases)
+                {
+                    if (!primaryCases.Contains(lc))
+                    {
+                        throw new InvalidOperationException(
+                            "Load combination LC" + load.LoadCase + " references LC" + lc + ", which has no loads.");
+                    }
+                }
             }
 
             foreach (var load in loads ?? Array.Empty<StbLoadModel>())
@@ -122,6 +178,14 @@ namespace StbGrasshopper
 
                 switch (load.Kind)
                 {
+                    case StbLoadKind.Gravity:
+                        finalRecords.Add(load.ToGlodRecord());
+                        break;
+
+                    case StbLoadKind.Combination:
+                        combinationRecords.Add(load.ToLcmbRecord());
+                        break;
+
                     case StbLoadKind.Line:
                         var lineMatch = FindElement(load.ElementLine, assembledElements, tolerance);
                         if (lineMatch.Reversed && !load.IsGlobal)
@@ -163,6 +227,7 @@ namespace StbGrasshopper
                 }
             }
 
+            finalRecords.AddRange(combinationRecords);
             result.Text = string.Join(Environment.NewLine, finalRecords) + Environment.NewLine;
             return result;
         }
