@@ -46,9 +46,18 @@ python tools/icons/build_gh_icons.py
 - `STb Analyze from file`: accepts a `.dat` path, runs the same solver, and outputs
   parsed `Results` plus an analyzed `STb Model`
 - `STB Load Cases`: accepts `STb Model` and lists available load cases in its results
-- `STB Displacements`: accepts `STb Model` and exposes load case, node id, translation, and rotation rows
-- `STB Forces`: accepts `STb Model` and exposes parsed element force rows
+- `STB Displacements`: accepts `STb Model` and exposes load case, node id, translation, rotation,
+  and initial (undeformed) node point `Pi` rows
+- `STB Forces`: input `STb Model`, `LC` (negative = all), optional element `Name` list
+  (empty = all), and `t` list (default 0.5) → `Element ID` and the six member forces `N`, `Vy`,
+  `Vz` (kN), `Mx`, `My`, `Mz` (kNm) as trees. Each branch holds start, the `t` values, and end;
+  the path is `{Element ID}`, or `{LC;Element ID}` when several load cases are output. Values
+  match `STB Force Diagram` (exact with `EWLD` rows, otherwise the same interpolation).
 - `STB Force Diagram`: diagrams are exact for partial and variable member line loads when the `.out` file contains `EWLD` rows.
+  The optional `Name` list shows only elements whose `STb Element` name matches (matched by
+  end points against the model elements); empty shows every element.
+  `Diagram`, `Values`, and `Element IDs` are trees with one branch per element, using the
+  same `{Element ID}` / `{LC;Element ID}` paths as `STB Forces`.
 - `STb Grid Frame`: input span lists and counts for X, Y and story heights → output column,
   beam and foundation lines, base support points, and floor / exterior wall panel boundaries
   (one branch of four lines per panel) ready for `STb Element` → `STb Area Load`.
@@ -60,6 +69,9 @@ python tools/icons/build_gh_icons.py
   The body drop-down selects `Combined` (|N/A| + |My/Wy| + |Mz/Wz|, the extreme-fiber value),
   `Axial` (N/A), `Bending y` (My/Wy) or `Bending z` (Mz/Wz). All values are magnitudes in N/mm2;
   shear stress is not shown because SPRP carries no shear areas.
+  The optional `Name` list limits the preview to the named elements, as in `STB Force Diagram`.
+  `Segments`, `Stress`, `Colors`, and `Element IDs` are trees with one branch per element, using
+  the same `{Element ID}` / `{LC;Element ID}` paths as `STB Forces`.
 - `STB DAT Nodes`: reads original node points from an existing `.dat` file
 - `STB DAT Beams`: reads element connectivity from an existing `.dat` file
 - `STB Element`: input `Name`, `Line`, `Section`, `Beta` → output typed `Element`

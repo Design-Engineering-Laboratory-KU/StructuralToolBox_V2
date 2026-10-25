@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Grasshopper.Kernel.Data;
 
 namespace StbGrasshopper
 {
@@ -11,6 +12,15 @@ namespace StbGrasshopper
         public static bool Matches(int loadCase, int rowLoadCase)
         {
             return loadCase < 0 || loadCase == rowLoadCase;
+        }
+
+        /// <summary>
+        /// Output branch for one element: {Element ID}, or {LC;Element ID} when the
+        /// output spans several load cases.
+        /// </summary>
+        public static GH_Path ElementPath(bool withLoadCase, int loadCase, int elementId)
+        {
+            return withLoadCase ? new GH_Path(loadCase, elementId) : new GH_Path(elementId);
         }
 
         public static List<int> GetLoadCases(StbParsedResults results)

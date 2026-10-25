@@ -41,6 +41,7 @@ SKIP_DIR_NAMES = {
     "__pycache__",
     ".pytest_cache",
     "installer",
+    "student",
     ".idea",
     ".vscode",
     ".bench",

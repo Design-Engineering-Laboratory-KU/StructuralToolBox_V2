@@ -67,13 +67,16 @@ namespace StbGrasshopper
             pManager.AddIntegerParameter("Divisions", "D", "Diagram segments per element.", GH_ParamAccess.item, 8);
             pManager.AddBooleanParameter("Values", "V", "Show value labels in the Rhino viewport.", GH_ParamAccess.item, true);
             pManager.AddBooleanParameter("Legend", "Legend", "Draw the force legend in the Rhino viewport.", GH_ParamAccess.item, true);
+            pManager.AddTextParameter("Name", "Name", "Element names (STb Element Name) to display. Empty shows every element.", GH_ParamAccess.list);
+            pManager[pManager.ParamCount - 1].Optional = true;
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddLineParameter("Diagram", "D", "Force diagram segments.", GH_ParamAccess.list);
-            pManager.AddNumberParameter("Values", "V", "Signed force value at the start of each diagram segment in kN or kNm.", GH_ParamAccess.list);
-            pManager.AddIntegerParameter("Element IDs", "E", "Element id for each diagram segment.", GH_ParamAccess.list);
+            const string branches = " One branch per element: {Element ID}, or {LC;Element ID} for several load cases.";
+            pManager.AddLineParameter("Diagram", "D", "Force diagram segments from start to end." + branches, GH_ParamAccess.tree);
+            pManager.AddNumberParameter("Values", "V", "Signed force value at the start of each diagram segment in kN or kNm." + branches, GH_ParamAccess.tree);
+            pManager.AddIntegerParameter("Element IDs", "E", "Element id of each branch." + branches, GH_ParamAccess.tree);
         }
 
         protected override void SolveInstance(IGH_DataAccess da)
@@ -127,6 +130,10 @@ namespace StbGrasshopper
                 elements[element.ElementId] = element;
             }
 
+            var names = new List<string>();
+            ReadInputList(da, "Name", names);
+            var nameFilter = StbElementNameFilter.Create(names, da, 0, this);
+
             var rawSegments = new List<RawDiagramSegment>();
             var hasElementLoadSegments = results.ElementLoadSegments.Count > 0;
             foreach (var force in results.ElementForces)
@@ -141,6 +148,11 @@ namespace StbGrasshopper
 
                 var memberLine = new Line(start, end);
                 if (memberLine.Length <= 1e-9)
+                {
+                    continue;
+                }
+
+                if (nameFilter != null && !nameFilter.Includes(memberLine))
                 {
                     continue;
                 }
@@ -193,6 +205,7 @@ namespace StbGrasshopper
                             value,
                             centerValue,
                             force.ElementId,
+                            force.LoadCase,
                             textNormal,
                             points[i] + diagramDirection * LabelOffset(value),
                             points[i + 1] + diagramDirection * LabelOffset(endValue),
@@ -234,6 +247,7 @@ namespace StbGrasshopper
                             value,
                             centerValue,
                             force.ElementId,
+                            force.LoadCase,
                             textNormal,
                             points[i] + diagramDirection * LabelOffset(value),
                             points[i + 1] + diagramDirection * LabelOffset(InterpolateForce(valueI, valueCenter, valueJ, t1)),
@@ -268,11 +282,24 @@ namespace StbGrasshopper
                 _legendMaximum = 1.0;
             }
 
-            var outputLines = new List<Line>();
-            var outputValues = new List<double>();
-            var outputElementIds = new List<int>();
+            var loadCases = new HashSet<int>();
             foreach (var segment in rawSegments)
             {
+                loadCases.Add(segment.LoadCase);
+            }
+
+            var withCase = loadCases.Count > 1;
+            var outputLines = new Grasshopper.DataTree<Line>();
+            var outputValues = new Grasshopper.DataTree<double>();
+            var outputElementIds = new Grasshopper.DataTree<int>();
+            foreach (var segment in rawSegments)
+            {
+                var path = StbLoadCaseFilter.ElementPath(withCase, segment.LoadCase, segment.ElementId);
+                if (!outputElementIds.PathExists(path))
+                {
+                    outputElementIds.Add(segment.ElementId, path);
+                }
+
                 var color = StbLegend.ColorFor(Math.Abs(segment.CenterValue) / _legendMaximum);
                 _segments.Add(new DiagramSegment(segment.Line, segment.Value, segment.ElementId, segment.TextNormal, color));
                 _valueLabels.Add(new ValueLabel(segment.StartPoint, segment.Value, segment.TextNormal, color));
@@ -280,13 +307,12 @@ namespace StbGrasshopper
                 {
                     _valueLabels.Add(new ValueLabel(segment.EndPoint, segment.EndValue, segment.TextNormal, color));
                 }
-                outputLines.Add(segment.Line);
-                outputValues.Add(segment.Value);
-                outputElementIds.Add(segment.ElementId);
+                outputLines.Add(segment.Line, path);
+                outputValues.Add(segment.Value, path);
             }
-            da.SetDataList(0, outputLines);
-            da.SetDataList(1, outputValues);
-            da.SetDataList(2, outputElementIds);
+            da.SetDataTree(0, outputLines);
+            da.SetDataTree(1, outputValues);
+            da.SetDataTree(2, outputElementIds);
         }
 
         internal double DiagramScale => _diagramScale;
@@ -548,6 +574,19 @@ namespace StbGrasshopper
             return false;
         }
 
+        private bool ReadInputList<T>(IGH_DataAccess dataAccess, string name, List<T> values)
+        {
+            for (var index = 0; index < Params.Input.Count; index++)
+            {
+                if (string.Equals(Params.Input[index].Name, name, StringComparison.Ordinal))
+                {
+                    return dataAccess.GetDataList(index, values);
+                }
+            }
+
+            return false;
+        }
+
         private double LabelOffset(double value)
         {
             return (value < 0.0 ? -1.0 : 1.0) * _textSize * 0.5;
@@ -651,6 +690,7 @@ namespace StbGrasshopper
                 double value,
                 double centerValue,
                 int elementId,
+                int loadCase,
                 Vector3d textNormal,
                 Point3d startPoint,
                 Point3d endPoint,
@@ -661,6 +701,7 @@ namespace StbGrasshopper
                 Value = value;
                 CenterValue = centerValue;
                 ElementId = elementId;
+                LoadCase = loadCase;
                 TextNormal = textNormal;
                 StartPoint = startPoint;
                 EndPoint = endPoint;
@@ -672,6 +713,7 @@ namespace StbGrasshopper
             public double Value { get; }
             public double CenterValue { get; }
             public int ElementId { get; }
+            public int LoadCase { get; }
             public Vector3d TextNormal { get; }
             public Point3d StartPoint { get; }
             public Point3d EndPoint { get; }
