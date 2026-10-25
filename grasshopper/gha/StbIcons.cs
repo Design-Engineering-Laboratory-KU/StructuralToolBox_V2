@@ -46,6 +46,13 @@ namespace StbGrasshopper
         public static Bitmap ModelContainer => Get("ModelContainer");
         public static Bitmap ElementContainer => Get("ElementContainer");
         public static Bitmap SupportContainer => Get("SupportContainer");
+        public static Bitmap InfoElement => Get("InfoElement");
+        public static Bitmap InfoMaterial => Get("InfoMaterial");
+        public static Bitmap InfoSection => Get("InfoSection");
+        public static Bitmap InfoLoad => Get("InfoLoad");
+        public static Bitmap InfoSupport => Get("InfoSupport");
+        public static Bitmap InfoModel => Get("InfoModel");
+        public static Bitmap InfoNode => Get("InfoNode");
 
         private const string ResourcePrefix = "StbGrasshopper.Resources.Icons.";
 

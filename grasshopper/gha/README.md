@@ -22,13 +22,13 @@ groups appear in workflow order. Items after `/` sit on the lower row of the gro
 | `06.Assemble` | STB Assemble Model / STb Assembly from file, STB DAT Nodes, STB DAT Beams |
 | `07.Analyze` | STb Analyze / STb Analyze from file |
 | `08.Post` | Displacements, Reactions, Forces / Deformed Shape, Force Diagram, Stress |
-| `99.Info` | STB Load Cases, View Support Condition, View Load, View Section |
+| `99.Info` | STB Load Cases, View Support Condition, View Load, View Section / Info Element, Info Material, Info Section, Info Load, Info Support, Info Model, Info Node |
 
 ## Icons
 
 `Resources/Icons-original` holds the hand-drawn 2021 StructuralToolBox icon set
 (black outline, one light blue accent `#87D3DF`, transparent background for
-components and a dark hexagon for parameter containers). Nineteen of those files
+components and a dark hexagon for parameter containers). Twenty-six of those files
 are reused verbatim; the remaining icons are drawn in the same palette and stroke
 weight by `tools/icons/build_gh_icons.py`. Components that read a `.dat` file
 carry a page badge over the glyph of the component they mirror.
@@ -133,6 +133,21 @@ python tools/icons/build_gh_icons.py
   use `Segments` sides (default 12). The preview colours each section differently. Hollow
   sections whose walls leave no hole are drawn solid, with a remark.
 - `STB Deformed Shape`: displays the deformed model with a scale slider and legend
+- `Info Element` / `Info Material` / `Info Support`: the reverse of `STb Element` /
+  `STb Mat` / `STb Support`. Element also outputs its `EJNT` springs (empty = rigid);
+  Support outputs the point, a `Tx,Ty,Tz,Rx,Ry,Rz` text, and six booleans.
+- `Info Section`: accepts sections of any type. Outputs name, material, type id and
+  name, the dimension names and values in drop-down input order, and one output per
+  dimension name (`B`, `H`, `D`, `tw`, `tf`, `t`) left empty when the type lacks it,
+  so mixed section lists stay aligned.
+- `Info Load`: accepts every load kind. Outputs `Kind` and `LC`, then point
+  (`P`, `F`, `M`), line (`L`, `G`, `Wi`, `Wj`, `T0`, `T1`), area (`B`, `Pr`),
+  gravity (`Acc`), and combination (`Name`, `Fac`, `LCs`) values; outputs of other
+  kinds stay empty.
+- `Info Model`: input `STb Model` → elements, supports, loads, distinct sections and
+  materials, element lines, `.dat` text and path, and whether results are attached.
+- `Info Node`: input `STb Model` → node ids and points read from its `.dat` text,
+  after duplicate nodes are merged, so the ids match Displacements and Reactions.
 
 The current solver does not include the member-axis component of an `ELOD` in
 its fixed-end forces. `STB Line Load` reports a warning when such a component is
