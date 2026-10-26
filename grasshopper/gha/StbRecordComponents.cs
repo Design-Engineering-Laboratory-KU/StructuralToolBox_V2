@@ -1068,6 +1068,8 @@ namespace StbGrasshopper
             pManager.AddTextParameter("DAT", "DAT", "Output .dat path. Empty uses the temp folder.", GH_ParamAccess.item, string.Empty);
             pManager.AddBooleanParameter("Write", "Write", "Write the .dat file.", GH_ParamAccess.item, false);
             pManager.AddGenericParameter("Results", "R", "Optional parsed results to store in STb Model.", GH_ParamAccess.item);
+            // Incomplete wiring is a warning (orange), not an error (red).
+            Params.Input[0].Optional = true;
             Params.Input[1].Optional = true;
             Params.Input[2].Optional = true;
             Params.Input[3].Optional = true;
@@ -1095,8 +1097,28 @@ namespace StbGrasshopper
 
             if (elements.Count == 0)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "At least one element is required.");
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "At least one element is required.");
+                if (loads.Count == 0)
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No loads connected.");
+                }
+
+                if (supports.Count == 0)
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No supports connected.");
+                }
+
                 return;
+            }
+
+            if (loads.Count == 0)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No loads connected.");
+            }
+
+            if (supports.Count == 0)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No supports connected.");
             }
 
             var tolerance = RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
