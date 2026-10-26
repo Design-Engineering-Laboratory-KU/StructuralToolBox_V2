@@ -1,5 +1,5 @@
 # --- HEADER OUTPUT --- 
-# DATE OF ANALYSIS: 2026/05/27 21:07:55
+# DATE OF ANALYSIS: 2026/10/20 15:40:33
 
 # --- SECTION PROPS ---
 #      SEC,          A,       Asy,       Asz,         J,        Iy,        Iz,        Wy,        Wz,        iy,        iz
@@ -13,9 +13,9 @@ NDSP,     0,     0, 0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 0.000
 NDSP,     0,     1, 0.000e+00, 0.000e+00,-1.471e-04, 0.000e+00, 1.084e-04, 0.000e+00
 
 # --- REACTION FORCE ---
-#        LC,  NODE,        TX,        TY,        TZ,        RX,        RY,        RZ
-#                         (kN)       (kN)       (kN)      (kNm)      (kNm)      (kNm)
-REAC,     0,     0, 0.000e+00, 0.000e+00, 5.000e+00, 0.000e+00,-1.000e+01, 0.000e+00
+#        LC,  NODE,           TX,           TY,           TZ,           RX,           RY,           RZ
+#                            (kN)         (kN)         (kN)        (kNm)        (kNm)        (kNm)
+REAC,     0,     0, 0.000000e+00, 0.000000e+00, 5.000000e+00, 0.000000e+00,-1.000000e+01, 0.000000e+00
 
 # --- ELEMENT FORCE ---
 #        LC,  ELEM,        Ni,       Qyi,       Qzi,       Mxi,       Myi,       Mzi         Nj,       Qyj,       Qzj,       Mxj,       Myj,       Mzj,       Myc,       Mzc

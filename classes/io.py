@@ -883,25 +883,27 @@ def RegisterResultData(_mdl: Mdl):
 
     ## reaction forces
     lns += "# --- REACTION FORCE ---\n"
-    lns += "#        LC,  NODE,        TX,        TY,        TZ,        RX,        RY,        RZ\n"
-    lns += "#                         (kN)       (kN)       (kN)      (kNm)      (kNm)      (kNm)\n"
-    
-    for i in range(len(model_lcs)): 
+    lns += "#        LC,  NODE,           TX,           TY,           TZ,           RX,           RY,           RZ\n"
+    lns += "#                            (kN)         (kN)         (kN)        (kNm)        (kNm)        (kNm)\n"
+
+    for i in range(len(model_lcs)):
         lc   = model_lcs[i]
         #csts = list(filter(lambda l: l.lc == lc, _))
 
         for c in model_cons:
             nid   = c.nd.id
             rs    = c.nd.reacts[i] # [lc][vals]
+            # 7 significant digits (other records use 4) so that reactions
+            # summed from the .out file balance the applied loads.
             props = ["REAC",
-                     "{: >6}".format(lc), 
-                     "{: >6}".format(nid), 
-                     "{:10.3e}".format(rs[0] * 1e-3),
-                     "{:10.3e}".format(rs[1] * 1e-3),
-                     "{:10.3e}".format(rs[2] * 1e-3),
-                     "{:10.3e}".format(rs[3] * 1e-3),
-                     "{:10.3e}".format(rs[4] * 1e-3),
-                     "{:10.3e}".format(rs[5] * 1e-3)
+                     "{: >6}".format(lc),
+                     "{: >6}".format(nid),
+                     "{:13.6e}".format(rs[0] * 1e-3),
+                     "{:13.6e}".format(rs[1] * 1e-3),
+                     "{:13.6e}".format(rs[2] * 1e-3),
+                     "{:13.6e}".format(rs[3] * 1e-3),
+                     "{:13.6e}".format(rs[4] * 1e-3),
+                     "{:13.6e}".format(rs[5] * 1e-3)
                     ]
 
             lns += ','.join(props) + "\n"

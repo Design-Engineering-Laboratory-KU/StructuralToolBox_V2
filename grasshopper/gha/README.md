@@ -17,7 +17,7 @@ groups appear in workflow order. Items after `/` sit on the lower row of the gro
 | `01.Mat` | STb Mat |
 | `02.Sec` | STb Section |
 | `03.Support` | STb Support |
-| `04.Load` | Point / Line / Area / Gravity Load, then STb Load Combination, then STB Area Tributary |
+| `04.Load` | Point / Line / Area / Area from Mesh / Gravity Load, then STb Load Combination, then STB Area Tributary |
 | `05.Elem` | STb Element / STb Joint / STb Grid Frame |
 | `06.Assemble` | STB Assemble Model / STb Assembly from file, STB DAT Nodes, STB DAT Beams |
 | `07.Analyze` | STb Analyze / STb Analyze from file |
@@ -77,6 +77,15 @@ python tools/icons/build_gh_icons.py
   `W` (three ELOD segments). Output is a typed `Load` list (one item per segment).
 - `STB Area Load`: input three or four typed boundary `Element` objects, `LC`, and
   global pressure vector `P` (kN/m²) → output typed `Load`
+- `STb Area Load from Mesh`: input `Mesh` (the loaded floor or roof; its faces need not
+  match the panels), candidate `STb Element` list (or an `STb Model`), optional `Elem IDs`,
+  `LC`, `P` (kN/m²) and `Tol` → one typed area `Load` per panel, the panel's boundary
+  `ID`s (one branch per load), and `Panels` / `Skipped` outlines. Elements whose ends and
+  midpoint lie on the mesh divide it into panels; each panel bounded by 3 or 4 elements
+  gets a load, as with `STB Area Load`. Openings in the mesh get no load, and panels with
+  more than 4 boundary elements are skipped with a warning because ALOD takes at most 4.
+  `Elem IDs` are the 1-based ids `STB Assemble Model` gives the valid elements in input
+  order, so connect the same element list, in the same order, to both components.
 - `STB Area Tributary`: input typed area `Load` → equivalent boundary line loads
   `Wi`/`Wj` (global kN/m) and tributary areas; viewport preview uses the same
   nearest-edge split as the solver. Do not also send these line loads to
