@@ -90,14 +90,14 @@ python tools/icons/build_gh_icons.py
 - `STB Area Load`: input three or four typed boundary `Element` objects, `LC`, and
   global pressure vector `P` (kN/m²) → output typed `Load`
 - `STb Area Load from Mesh`: input `Mesh` (the loaded floor or roof; its faces need not
-  match the panels), candidate `STb Element` list (or an `STb Model`), optional `Elem IDs`,
-  `LC`, `P` (kN/m²) and `Tol` → one typed area `Load` per panel, the panel's boundary
-  `ID`s (one branch per load), and `Panels` / `Skipped` outlines. Elements whose ends and
-  midpoint lie on the mesh divide it into panels; each panel bounded by 3 or 4 elements
-  gets a load, as with `STB Area Load`. Openings in the mesh get no load, and panels with
-  more than 4 boundary elements are skipped with a warning because ALOD takes at most 4.
-  `Elem IDs` are the 1-based ids `STB Assemble Model` gives the valid elements in input
-  order, so connect the same element list, in the same order, to both components.
+  match the panels), candidate `STb Element` list, optional `Elem Name` list, `LC`,
+  `P` (kN/m²) and `Tol` → one typed area `Load` per panel and `Panels` / `Skipped`
+  outlines. Elements whose ends and midpoint lie on the mesh divide it into panels; each
+  panel bounded by 3 or 4 elements gets a load, as with `STB Area Load`. Openings in the
+  mesh get no load, and panels with more than 4 boundary elements are skipped with a
+  warning because ALOD takes at most 4. When `Elem Name` is given, only elements with
+  those names (`STb Element` Name) divide the mesh, so only panels bounded by them are
+  loaded; unknown names give a warning.
 - `STB Area Tributary`: input typed area `Load` → equivalent boundary line loads
   `Wi`/`Wj` (global kN/m) and tributary areas; viewport preview uses the same
   nearest-edge split as the solver. Do not also send these line loads to

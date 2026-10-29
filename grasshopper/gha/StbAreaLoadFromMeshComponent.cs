@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Data;
-using Grasshopper.Kernel.Types;
 using Rhino;
 using Rhino.Geometry;
 
@@ -43,20 +41,12 @@ namespace StbGrasshopper
                 new StbElementParameter(),
                 "STb Element",
                 "Elem",
-                "Candidate boundary elements: connect the same list, in the same order, as STB Assemble Model "
-                + "so Elem IDs match the assembled ELEM ids.",
+                "Candidate boundary elements, e.g. the same list connected to STB Assemble Model.",
                 GH_ParamAccess.list);
-            pManager.AddParameter(
-                new StbModelParameter(),
-                "STb Model",
-                "STb Model",
-                "Alternative to STb Element, e.g. from STb Assembly from file. Do not use the STb Model of the "
-                + "Assemble component these loads go into; that would be a loop.",
-                GH_ParamAccess.item);
-            pManager.AddIntegerParameter(
-                "Elem IDs",
-                "ID",
-                "Optional. Only these elements may bound a panel (1-based ELEM ids, as STB Assemble Model numbers them). "
+            pManager.AddTextParameter(
+                "Elem Name",
+                "Name",
+                "Optional. Only elements with these names (STb Element Name) may bound a panel. "
                 + "Empty uses every element on the mesh.",
                 GH_ParamAccess.list);
             pManager.AddIntegerParameter("LC", "LC", "Load case id.", GH_ParamAccess.item, 0);
@@ -72,9 +62,7 @@ namespace StbGrasshopper
                 "Distance within which an element end lies on the mesh, in model units. 0 = document tolerance.",
                 GH_ParamAccess.item,
                 0.0);
-            pManager[1].Optional = true;
             pManager[2].Optional = true;
-            pManager[3].Optional = true;
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -85,11 +73,6 @@ namespace StbGrasshopper
                 "Ld",
                 "One STB area load per panel.",
                 GH_ParamAccess.list);
-            pManager.AddIntegerParameter(
-                "Boundary IDs",
-                "ID",
-                "ELEM ids bounding each panel; one branch per load.",
-                GH_ParamAccess.tree);
             pManager.AddCurveParameter("Panels", "Pnl", "Outline of each loaded panel.", GH_ParamAccess.list);
             pManager.AddCurveParameter(
                 "Skipped",
@@ -110,36 +93,30 @@ namespace StbGrasshopper
             }
 
             var elements = StbModelGooUtil.GetElements(da, 1);
-            StbModelGoo modelGoo = null;
-            if (elements.Count == 0 && da.GetData(2, ref modelGoo) && modelGoo?.Value != null)
-            {
-                elements = modelGoo.Value.Elements.Where(e => e != null).ToList();
-            }
-
             if (elements.Count == 0)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Connect STb Element objects or an STb Model.");
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Connect STb Element objects.");
                 return;
             }
 
-            var ids = new List<int>();
-            da.GetDataList(3, ids);
+            var names = new List<string>();
+            da.GetDataList(2, names);
             int loadCase = 0;
             var pressure = Vector3d.Zero;
             double tolerance = 0.0;
-            da.GetData(4, ref loadCase);
-            da.GetData(5, ref pressure);
-            da.GetData(6, ref tolerance);
+            da.GetData(3, ref loadCase);
+            da.GetData(4, ref pressure);
+            da.GetData(5, ref tolerance);
             if (!(tolerance > 0.0))
             {
                 tolerance = RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
             }
 
-            // STB Assemble Model numbers the valid elements 1, 2, ... in input order.
-            var allowed = new HashSet<int>(ids);
+            var wanted = new HashSet<string>(
+                names.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()),
+                StringComparer.Ordinal);
+            var found = new HashSet<string>(StringComparer.Ordinal);
             var lines = new List<Line>();
-            var lineIds = new List<int>();
-            var nextId = 1;
             foreach (var element in elements)
             {
                 if (!element.Line.IsValid)
@@ -147,20 +124,18 @@ namespace StbGrasshopper
                     continue;
                 }
 
-                var id = nextId++;
-                if (allowed.Count == 0 || allowed.Contains(id))
+                var name = element.Name?.Trim() ?? string.Empty;
+                if (wanted.Count == 0 || wanted.Contains(name))
                 {
                     lines.Add(element.Line);
-                    lineIds.Add(id);
+                    found.Add(name);
                 }
             }
 
-            var unknown = allowed.Where(id => id < 1 || id >= nextId).OrderBy(id => id).ToList();
-            if (unknown.Count > 0)
+            var missing = wanted.Where(n => !found.Contains(n)).ToList();
+            if (missing.Count > 0)
             {
-                AddRuntimeMessage(
-                    GH_RuntimeMessageLevel.Warning,
-                    "No element with Elem ID " + string.Join(", ", unknown) + " (valid ids are 1 to " + (nextId - 1) + ").");
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No element named: " + string.Join(", ", missing) + ".");
             }
 
             var panels = new List<StbPanel>();
@@ -168,8 +143,7 @@ namespace StbGrasshopper
             StbPanelFinder.Find(lines, p => NormalOnMeshes(meshes, p, tolerance), tolerance, panels, skipped);
 
             var loads = new List<StbLoadGoo>();
-            var boundaryIds = new GH_Structure<GH_Integer>();
-            for (var i = 0; i < panels.Count; i++)
+            foreach (var panel in panels)
             {
                 var load = new StbLoadModel
                 {
@@ -177,11 +151,9 @@ namespace StbGrasshopper
                     LoadCase = loadCase,
                     Pressure = pressure,
                 };
-                var path = new GH_Path(i);
-                foreach (var index in panels[i].LineIndices)
+                foreach (var index in panel.LineIndices)
                 {
                     load.BoundaryLines.Add(lines[index]);
-                    boundaryIds.Append(new GH_Integer(lineIds[index]), path);
                 }
 
                 loads.Add(new StbLoadGoo(load));
@@ -207,9 +179,8 @@ namespace StbGrasshopper
             }
 
             da.SetDataList(0, loads);
-            da.SetDataTree(1, boundaryIds);
-            da.SetDataList(2, panels.Select(p => new PolylineCurve(p.Outline)));
-            da.SetDataList(3, skipped.Select(p => new PolylineCurve(p.Outline)));
+            da.SetDataList(1, panels.Select(p => new PolylineCurve(p.Outline)));
+            da.SetDataList(2, skipped.Select(p => new PolylineCurve(p.Outline)));
         }
 
         private static Mesh PrepareMesh(Mesh source)
