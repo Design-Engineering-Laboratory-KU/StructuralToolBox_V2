@@ -50,7 +50,9 @@ namespace StbGrasshopper
     {
         private const double LengthTol = 1e-9;
 
-        private static readonly string[] ModeNames = { "Linear", "Partial", "Triangle", "Trapezoid" };
+        private static readonly string[] ModeNames = { "Linear", "Partial", "Triangle", "Trapezoid", "Point" };
+
+        public const int PointMode = 4;
 
         public static int ModeCount => ModeNames.Length;
 
@@ -98,6 +100,12 @@ namespace StbGrasshopper
                         Number("T2", "T2", "End of the flat top.", 0.75),
                         Number("T3", "T3", "End of the trapezoid (0 = i-end, 1 = j-end).", 1.0),
                         Vector("W", "W", "Plateau distributed load in kN/m.", Vector3d.Zero),
+                    };
+                case PointMode:
+                    return new[]
+                    {
+                        Number("T", "T", "Position of the point load along the member (0 = i-end, 1 = j-end).", 0.5),
+                        Vector("Load", "P", "Point load in kN.", Vector3d.Zero),
                     };
                 default:
                     throw new ArgumentOutOfRangeException(nameof(mode));
@@ -153,6 +161,14 @@ namespace StbGrasshopper
                         new StbLineLoadSegment(numbers[2], numbers[3], vectors[0], Vector3d.Zero),
                     };
                     break;
+                case PointMode:
+                    ExpectCount(numbers, 1, vectors, 1, mode);
+                    ValidateParameters(new[] { numbers[0] }, mode);
+                    // T0 = T1 marks a concentrated load; Wi = Wj is the force in kN.
+                    return new List<StbLineLoadSegment>
+                    {
+                        new StbLineLoadSegment(numbers[0], numbers[0], vectors[0], vectors[0]),
+                    };
                 default:
                     throw new ArgumentOutOfRangeException(nameof(mode));
             }

@@ -104,6 +104,35 @@ namespace StbGrasshopper
                 return;
             }
 
+            if (loads.Any(l => l.Kind == StbLoadKind.MeshArea))
+            {
+                if (model == null)
+                {
+                    AddRuntimeMessage(
+                        GH_RuntimeMessageLevel.Warning,
+                        "Area loads from a mesh need the model elements to find their panels. Connect an STb Model.");
+                    loads = loads.Where(l => l.Kind != StbLoadKind.MeshArea).ToList();
+                }
+                else
+                {
+                    var expansion = StbMeshAreaLoads.Expand(
+                        model.Elements,
+                        loads,
+                        RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001);
+                    foreach (var warning in expansion.Warnings)
+                    {
+                        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning);
+                    }
+
+                    loads = expansion.Loads;
+                }
+
+                if (loads.Count == 0)
+                {
+                    return;
+                }
+            }
+
             da.SetDataList(0, loads.Select(l => l.LoadCase).Distinct().OrderBy(v => v));
 
             var factors = CaseFactors(loads, loadCase);
@@ -146,14 +175,14 @@ namespace StbGrasshopper
             var spacing = modelBox.IsValid ? Math.Max(modelBox.Diagonal.Length / 40.0, tolerance * 10.0) : arrowLength * 0.3;
 
             var descriptions = new List<string>();
-            AddPointLoads(selected, arrowLength, descriptions);
+            AddPointLoads(selected, model, arrowLength, descriptions);
             AddLineLoads(selected, model, arrowLength, spacing, descriptions);
             AddAreaLoads(selected, arrowLength, spacing, tolerance, descriptions);
             AddGravityLoads(selected, modelBox, arrowLength, descriptions);
 
-            if (selected.Any(l => l.Kind == StbLoadKind.Line && !l.IsGlobal) && model == null)
+            if (selected.Any(l => (l.Kind == StbLoadKind.Line || l.Kind == StbLoadKind.ElementPoint) && !l.IsGlobal) && model == null)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "Local line loads use Beta = 0 without an STb Model.");
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "Local line and element point loads use Beta = 0 without an STb Model.");
             }
 
             da.SetDataList(1, _arrows.Select(a => a.Line));
@@ -259,12 +288,49 @@ namespace StbGrasshopper
             return copy;
         }
 
-        private void AddPointLoads(List<StbLoadModel> loads, double maxLength, List<string> descriptions)
+        private void AddPointLoads(List<StbLoadModel> loads, StbModelModel model, double maxLength, List<string> descriptions)
         {
             var points = loads.Where(l => l.Kind == StbLoadKind.Point && l.Point.IsValid).ToList();
-            var maxForce = points.Count == 0 ? 0.0 : points.Max(l => l.Force.Length);
+            var elementPoints = new List<(StbLoadModel Load, Point3d At, Vector3d Force)>();
+            foreach (var load in loads)
+            {
+                if (load.Kind != StbLoadKind.ElementPoint || !load.ElementLine.IsValid || load.ElementLine.Length <= Zero)
+                {
+                    continue;
+                }
+
+                var force = load.Force;
+                if (!load.IsGlobal)
+                {
+                    StbMemberAxes.Compute(load.ElementLine, FindBeta(model, load.ElementLine), out var x, out var y, out var z);
+                    force = x * force.X + y * force.Y + z * force.Z;
+                }
+
+                elementPoints.Add((load, load.ElementLine.PointAt(load.T0), force));
+            }
+
+            var maxForce = Math.Max(
+                points.Count == 0 ? 0.0 : points.Max(l => l.Force.Length),
+                elementPoints.Count == 0 ? 0.0 : elementPoints.Max(p => p.Force.Length));
             var maxMoment = points.Count == 0 ? 0.0 : points.Max(l => l.Moment.Length);
             var minLength = maxLength * 0.25;
+
+            foreach (var (load, at, force) in elementPoints)
+            {
+                if (force.Length <= Zero)
+                {
+                    continue;
+                }
+
+                var direction = force;
+                direction.Unitize();
+                var forceLength = minLength + (maxLength - minLength) * force.Length / maxForce;
+                var tail = at - direction * forceLength;
+                AddArrow(new LoadArrow { Line = new Line(tail, at), Color = LineColor });
+                AddLabel(Number(force.Length) + " kN", tail, LineColor);
+                descriptions.Add("Element point LC" + load.LoadCase + " @ T=" + Number(load.T0)
+                    + (load.IsGlobal ? " global" : " local") + ": P=" + Format(load.Force) + " kN");
+            }
 
             foreach (var load in points)
             {

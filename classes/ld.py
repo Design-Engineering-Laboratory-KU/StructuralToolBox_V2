@@ -103,7 +103,21 @@ class PLd:
 # A segment is a linear load over x in [t0*L, t1*L] of a member of length L,
 # given by its 6 local (ECS) intensities (wxi, wyi, wzi, wxj, wyj, wzj) [N/m]
 # at t0 and t1. Helpers below are pure functions of (L, t0, t1, lds).
+#
+# A segment with t0 == t1 is a concentrated load (EPLD) at x = t0*L: its
+# first three values are the force (px, py, pz) [N] and the last three
+# repeat them. A point at t0 = 0 acts on every section, one at t0 = 1 on none.
 # ----------------------------------------------------------------------
+
+POINT_TOL = 1e-12
+
+
+def is_point_segment(t0, t1):
+    return abs(t1 - t0) <= POINT_TOL
+
+
+def _point_acts_at(a, x):
+    return x > a or a <= 0.0
 
 # 3-point Gauss-Legendre: exact up to degree 5 (linear load x cubic shape fn)
 _GAUSS3_X = np.array([-math.sqrt(0.6), 0.0, math.sqrt(0.6)])
@@ -136,6 +150,9 @@ def segment_fixed_end_forces(L, t0, t1, lds, phi_y=0.0, phi_z=0.0):
     """
 
     lds = np.asarray(lds, dtype=np.float64)
+    if is_point_segment(t0, t1):
+        return point_fixed_end_forces(L, t0, lds[0:3], phi_y, phi_z)
+
     a = t0 * L
     b = t1 * L
     seg = b - a
@@ -164,6 +181,30 @@ def segment_fixed_end_forces(L, t0, t1, lds, phi_y=0.0, phi_z=0.0):
     fwe[11] = np.sum(wt * y4 * w[:, 1])             # mzj
     return fwe
 
+
+def point_fixed_end_forces(L, t, p, phi_y=0.0, phi_z=0.0):
+    """Fixed-end forces (ECS) of a concentrated force p = (px, py, pz) [N] at
+    x = t*L: the shape functions evaluated at the load point, same index order,
+    signs and Timoshenko fields as segment_fixed_end_forces."""
+
+    p = np.asarray(p, dtype=np.float64)
+    x = t * L
+    y1, y2, y3, y4 = _bending_shapes(L, x, phi_y)
+    z1, z2, z3, z4 = _bending_shapes(L, x, phi_z)
+
+    fwe = np.zeros(12, dtype=np.float64)
+    fwe[0] = (1.0 - t) * p[0]                       # fxi
+    fwe[1] = y1 * p[1]                              # fyi
+    fwe[2] = z1 * p[2]                              # fzi
+    fwe[4] = -z2 * p[2]                             # myi
+    fwe[5] = y2 * p[1]                              # mzi
+    fwe[6] = t * p[0]                               # fxj
+    fwe[7] = y3 * p[1]                              # fyj
+    fwe[8] = z3 * p[2]                              # fzj
+    fwe[10] = -z4 * p[2]                            # myj
+    fwe[11] = y4 * p[1]                             # mzj
+    return fwe
+
 def segment_linear_equivalent(L, t0, t1, lds):
     """Full-length linear load (6 values) with the same resultant and the same
     first moment about the i end as the segment, per component."""
@@ -175,8 +216,12 @@ def segment_linear_equivalent(L, t0, t1, lds):
     wa = lds[0:3]
     wb = lds[3:6]
 
-    res = seg * (wa + wb) / 2.0
-    mom = wa * (b * b - a * a) / 2.0 + (wb - wa) * (seg * seg / 3.0 + a * seg / 2.0)
+    if is_point_segment(t0, t1):
+        res = wa
+        mom = wa * a
+    else:
+        res = seg * (wa + wb) / 2.0
+        mom = wa * (b * b - a * a) / 2.0 + (wb - wa) * (seg * seg / 3.0 + a * seg / 2.0)
 
     wj = 6.0 * mom / (L * L) - 2.0 * res / L
     wi = 4.0 * res / L - 6.0 * mom / (L * L)
@@ -189,6 +234,11 @@ def segment_moment_integral(L, t0, t1, lds, x):
     lds = np.asarray(lds, dtype=np.float64)
     a = t0 * L
     b = t1 * L
+    if is_point_segment(t0, t1):
+        if _point_acts_at(a, x):
+            return (x - a) * lds[0:3]
+        return np.zeros(3, dtype=np.float64)
+
     u = min(b, x)
     if u <= a:
         return np.zeros(3, dtype=np.float64)
@@ -240,23 +290,32 @@ class ELd:
                  _wzj: float,
                  _combi=False,
                  _t0: float = 0.0,
-                 _t1: float = 1.0):
+                 _t1: float = 1.0,
+                 _point: bool = False):
 
         self.eid =  _eid
         self.lc  =  _lc
         self.isGlobal = _isG
         self.lds = [_wxi, _wyi, _wzi, _wxj, _wyj, _wzj] # can be in GCS or ECS
-        # load range along the member, t = 0 at the i node, t = 1 at the j node;
-        # wi acts at t0, wj at t1, linear in between, zero outside [t0, t1]
         _t0 = float(_t0)
         _t1 = float(_t1)
-        if not (0.0 <= _t0 < _t1 <= 1.0 and _t1 - _t0 > 1e-9):
-            raise ValueError(
-                "ELOD on ELEM {0}: T0, T1 must satisfy 0 <= T0 < T1 <= 1 (got T0={1}, T1={2})".format(
-                    _eid, _t0, _t1))
-        # snap values within the writer tolerance to the exact full-length range
-        self.t0 = 0.0 if abs(_t0) <= ELd.T_TOL else _t0
-        self.t1 = 1.0 if abs(1.0 - _t1) <= ELd.T_TOL else _t1
+        if _point:
+            # concentrated force (EPLD) at t0: lds = (px, py, pz, px, py, pz) [N]
+            if not 0.0 <= _t0 <= 1.0:
+                raise ValueError(
+                    "EPLD on ELEM {0}: T must satisfy 0 <= T <= 1 (got T={1})".format(_eid, _t0))
+            self.lds = [_wxi, _wyi, _wzi, _wxi, _wyi, _wzi]
+            self.t0 = self.t1 = _t0
+        else:
+            # load range along the member, t = 0 at the i node, t = 1 at the j node;
+            # wi acts at t0, wj at t1, linear in between, zero outside [t0, t1]
+            if not (0.0 <= _t0 < _t1 <= 1.0 and _t1 - _t0 > 1e-9):
+                raise ValueError(
+                    "ELOD on ELEM {0}: T0, T1 must satisfy 0 <= T0 < T1 <= 1 (got T0={1}, T1={2})".format(
+                        _eid, _t0, _t1))
+            # snap values within the writer tolerance to the exact full-length range
+            self.t0 = 0.0 if abs(_t0) <= ELd.T_TOL else _t0
+            self.t1 = 1.0 if abs(1.0 - _t1) <= ELd.T_TOL else _t1
 
         self.len = math.sqrt(max([abs(_wxi), abs(_wxj)])**2 + max([abs(_wyi), abs(_wyj)])**2 + max([abs(_wzi), abs(_wzj)])**2)
 
@@ -269,9 +328,21 @@ class ELd:
         try:
             self.elm = elms_by_id[self.eid]
         except KeyError:
-            raise IndexError("ELOD refers to missing ELEM id: {0}".format(self.eid)) from None
+            raise IndexError("{0} refers to missing ELEM id: {1}".format(
+                "EPLD" if self.is_point else "ELOD", self.eid)) from None
 
     def OutputELdInfo(self):
+
+        if self.is_point:
+            props = ["EPLD",
+                     "{0: >6}".format(self.eid),
+                     "{0: >4}".format(self.lc),
+                     "{0: >4}".format(self.isGlobal),
+            ]
+            for l in self.lds[0:3]:
+                props.append("{0: >6.2f}".format(l * 1e-3)) # [N] -> [kN]
+            props.append("{0: >6}".format("{0:.12g}".format(self.t0)))
+            return ', '.join(props) + "\n"
 
         props = ["ELOD",
                  "{0: >6}".format(self.eid), 
@@ -293,6 +364,10 @@ class ELd:
     @property
     def is_partial(self):
         return self.t0 > ELd.T_TOL or self.t1 < 1.0 - ELd.T_TOL
+
+    @property
+    def is_point(self):
+        return is_point_segment(self.t0, self.t1)
 
 class ALd:
     def __init__(self, _lc, _px, _py, _pz, _e1, _e2, _e3, _e4, _combi=False):

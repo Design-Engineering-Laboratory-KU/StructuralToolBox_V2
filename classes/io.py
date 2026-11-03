@@ -6,7 +6,7 @@ from ejnt import EJnt
 from mat  import Mat
 from sec  import Sec
 from cons import Cons
-from ld   import PLd, ELd, ALd, GLd, Lcase, Lcmb, diagram_wsegs
+from ld   import PLd, ELd, ALd, GLd, Lcase, Lcmb, diagram_wsegs, is_point_segment
 from mdl  import Mdl
 from axis import Axis
 from plt  import Plt 
@@ -412,6 +412,22 @@ def ReadLines(_lns):
 
             elds.append(ELd(eid, lc, isGlobal, wxi, wyi, wzi, wxj, wyj, wzj, False, t0, t1)) 
 
+        elif key == "EPLD":
+
+            eid =   int(items[1])
+            lc  =   int(items[2])
+            isGlobal = int(items[3])
+            px  = float(items[4]) * 1e3 # [kN] --> [N]
+            py  = float(items[5]) * 1e3 # [kN] --> [N]
+            pz  = float(items[6]) * 1e3 # [kN] --> [N]
+            try:
+                t = float(items[7])
+            except (IndexError, ValueError):
+                raise ValueError(
+                    "EPLD on ELEM {0}: T (position along the member) is required".format(eid)) from None
+
+            elds.append(ELd(eid, lc, isGlobal, px, py, pz, px, py, pz, False, t, t, _point=True))
+
         elif key == "ALOD":
 
             lc = int(items[1])
@@ -751,12 +767,24 @@ def RegisterInputData(_mdl: Mdl):
     lns += "#    ELEM ID,   LC,  E/G,    WXi,    WYi,    WZi,    WXj,    WYj,    WZj\n"
     lns += "#                          (kN/m)  (kN/m)  (kN/m)  (kN/m)  (kN/m)  (kN/m)\n"
     lns += "#   (E/G: Element(=0) or Global(=1) Coordinate System)\n"
-    if any(el.is_partial for el in elds):
+    if any(el.is_partial and not el.is_point for el in elds):
         lns += "#   (optional T0, T1: load range along the member, 0 at node i, 1 at node j)\n"
     for el in elds:
-        lns += el.OutputELdInfo()
+        if not el.is_point:
+            lns += el.OutputELdInfo()
     
     lns += "\n"
+
+    ## element point load (written only when present, so other outputs stay unchanged)
+    epls = [el for el in elds if el.is_point]
+    if epls:
+        lns += "# --- ELEMENT POINT LOAD(EPLD) ---\n"
+        lns += "#    ELEM ID,   LC,  E/G,     PX,     PY,     PZ,      T\n"
+        lns += "#                            (kN)    (kN)    (kN)    (-)\n"
+        lns += "#   (T: position along the member, 0 at node i, 1 at node j)\n"
+        for el in epls:
+            lns += el.OutputELdInfo()
+        lns += "\n"
 
     ## area load
     lns += "# --- AREA LOAD(ALOD) ---\n"
@@ -956,10 +984,12 @@ def RegisterResultData(_mdl: Mdl):
     # The block is written only when at least one member carries a line load,
     # so outputs of models without member loads stay unchanged.
     ewld_rows = ""
+    has_point = False
     for lc in lcs:
         clc = model_lcs.index(lc)
         for e in elms:
             for seg in diagram_wsegs(e, clc):
+                has_point = has_point or is_point_segment(seg[0], seg[1])
                 props = ["EWLD",
                          "{: >6}".format(lc),
                          "{: >6}".format(e.id)]
@@ -970,6 +1000,8 @@ def RegisterResultData(_mdl: Mdl):
         lns += "# --- ELEMENT LOAD SEGMENT (local axes, diagram convention) ---\n"
         lns += "#        LC,  ELEM,        T0,        T1,       WXi,       WYi,       WZi,       WXj,       WYj,       WZj\n"
         lns += "#                          (-)        (-)    (kN/m)    (kN/m)    (kN/m)    (kN/m)    (kN/m)    (kN/m)\n"
+        if has_point:
+            lns += "#   (T0 = T1: concentrated load (EPLD) at T0; W values are the force in kN)\n"
         lns += ewld_rows
         lns += "\n"
 

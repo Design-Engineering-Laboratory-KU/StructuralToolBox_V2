@@ -47,6 +47,27 @@ test("two segments form a triangular load", () => {
   close(end.Mz, -100);
 });
 
+test("point load makes a jump in shear and a kink in moment", () => {
+  const len = 6;
+  const P = -12;
+  const t = 0.25;
+  // simply supported: Qz at i equals the reaction at i
+  const f = [0, 0, -P * (1 - t), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const segs = [[t, t, 0, 0, P, 0, 0, P]];
+  close(sectionForceAt(f, len, segs, t - 1e-6).Qz, -P * (1 - t));
+  close(sectionForceAt(f, len, segs, t + 1e-6).Qz, -P * (1 - t) + P);
+  close(sectionForceAt(f, len, segs, t).My, -P * (1 - t) * t * len);
+  close(sectionForceAt(f, len, segs, 1).My, 0, 1e-9);
+  assert.deepEqual(sampleStations(2, segs), [0, t - 1e-6, t, t + 1e-6, 0.5, 1]);
+});
+
+test("point load at the member ends", () => {
+  const f = Array(14).fill(0);
+  close(sectionForceAt(f, 10, [[0, 0, 0, 3, 0, 0, 3, 0]], 0).Qy, 3);
+  close(sectionForceAt(f, 10, [[1, 1, 0, 3, 0, 0, 3, 0]], 1).Qy, 0);
+  assert.deepEqual(breakpoints([[0, 0, 0, 3, 0, 0, 3, 0]]), [1e-6]);
+});
+
 test("breakpoints and uniform stations are sorted and merged", () => {
   const segs = [
     [0.2, 0.4, 0, 0, 0, 0, 0, 0],

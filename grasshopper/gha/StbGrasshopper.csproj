@@ -16,18 +16,10 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
-    <RhinoInstallDir Condition="'$(RhinoInstallDir)' == ''">$(ProgramW6432)\Rhino 8</RhinoInstallDir>
-    <RhinoCommonPath Condition="'$(RhinoCommonPath)' == ''">$(RhinoInstallDir)\System\RhinoCommon.dll</RhinoCommonPath>
-    <GrasshopperPath Condition="'$(GrasshopperPath)' == ''">$(RhinoInstallDir)\Plug-ins\Grasshopper\Grasshopper.dll</GrasshopperPath>
-    <GhIoPath Condition="'$(GhIoPath)' == ''">$(RhinoInstallDir)\Plug-ins\Grasshopper\GH_IO.dll</GhIoPath>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
-    <RhinoInstallDir Condition="'$(RhinoInstallDir)' == ''">/Applications/Rhino 8.app</RhinoInstallDir>
-    <RhinoCommonPath Condition="'$(RhinoCommonPath)' == ''">$(RhinoInstallDir)/Contents/Resources/RhinoCommon.dll</RhinoCommonPath>
-    <GrasshopperPath Condition="'$(GrasshopperPath)' == ''">$(RhinoInstallDir)/Contents/Resources/ManagedPlugIns/GrasshopperPlugin.rhp/Grasshopper.dll</GrasshopperPath>
-    <GhIoPath Condition="'$(GhIoPath)' == ''">$(RhinoInstallDir)/Contents/Resources/ManagedPlugIns/GrasshopperPlugin.rhp/GH_IO.dll</GhIoPath>
+  <PropertyGroup>
+    <!-- Compile against the Rhino 8 SR32 SDK (not the locally installed Rhino)
+         so the plugin loads on Rhino 8 SR32 and later on Windows and macOS. -->
+    <RhinoSdkVersion Condition="'$(RhinoSdkVersion)' == ''">8.32.26160.13001</RhinoSdkVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -44,18 +36,9 @@
       <HintPath>$(PkgMicrosoft_WindowsDesktop_App_Ref)\ref\net7.0\System.Windows.Forms.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="Grasshopper">
-      <HintPath>$(GrasshopperPath)</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="RhinoCommon">
-      <HintPath>$(RhinoCommonPath)</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="GH_IO">
-      <HintPath>$(GhIoPath)</HintPath>
-      <Private>false</Private>
-    </Reference>
+    <!-- Reference only: Rhino supplies RhinoCommon / Grasshopper / GH_IO at runtime. -->
+    <PackageReference Include="Grasshopper" Version="$(RhinoSdkVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="RhinoCommon" Version="$(RhinoSdkVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">

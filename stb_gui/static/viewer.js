@@ -3577,6 +3577,7 @@ function updateViewerInfoOverlay(model) {
 
   const pointLoads = model.point_loads ? model.point_loads.length : 0;
   const elemLoads = model.element_loads ? model.element_loads.length : 0;
+  const elemPointLoads = model.element_point_loads ? model.element_point_loads.length : 0;
   const supports = model.supports ? model.supports.length : 0;
 
   const displayLines = [];
@@ -3666,6 +3667,7 @@ function updateViewerInfoOverlay(model) {
     "point loads: " + pointLoads,
     "element loads: " + elemLoads,
   );
+  if (elemPointLoads > 0) lines.push("element point loads: " + elemPointLoads);
 
   if (displayLines.length > 0) {
     lines.push(
@@ -5196,6 +5198,23 @@ function buildModelScene(model) {
       }
     }
 
+    if (shouldDrawPointLoad()) {
+      drawElementPointLoads(model, {
+        lc,
+        defFac,
+        deformed,
+        span,
+        nm,
+        em,
+        arrowBase,
+        maxPMag,
+        showValues: showLoadValues,
+        loadLabelScale,
+        group: modelGroup,
+        labelGroup,
+      });
+    }
+
     drawElementInputLoads(model, {
       lc,
       defFac,
@@ -6404,6 +6423,10 @@ function maxPointLoadMag(model, lc) {
     if (String(l.lc) !== String(lc)) continue;
     max = Math.max(max, Math.hypot(l.px, l.py, l.pz));
   }
+  for (const l of model.element_point_loads || []) {
+    if (String(l.lc) !== String(lc)) continue;
+    max = Math.max(max, Math.hypot(l.f[0], l.f[1], l.f[2]));
+  }
   return max;
 }
 
@@ -7173,6 +7196,41 @@ function drawElementInputLoads(model, opts) {
       loadLabelScale,
       showValues,
     });
+  }
+}
+
+function drawElementPointLoads(model, opts) {
+  const {
+    lc, defFac, deformed, span, nm, em, arrowBase, maxPMag,
+    showValues, loadLabelScale, group, labelGroup,
+  } = opts;
+  for (const ld of model.element_point_loads || []) {
+    if (String(ld.lc) !== String(lc)) continue;
+    const e = em[ld.elem];
+    if (!e || !isMemberElementVisible(e.id)) continue;
+    const n0 = nm[e.n0];
+    const n1 = nm[e.n1];
+    if (!n0 || !n1) continue;
+    const mag = Math.hypot(ld.f[0], ld.f[1], ld.f[2]);
+    if (mag < 1e-9) continue;
+    const f = new THREE.Vector3(ld.f[0], ld.f[1], ld.f[2]);
+    const dir = (ld.global ? f : localVecToGlobal(f, e)).normalize();
+    const t = Math.max(0, Math.min(1, Number(ld.t) || 0));
+    const p = elemPointAlong(
+      nodePosition(n0, model, lc, defFac, deformed),
+      nodePosition(n1, model, lc, defFac, deformed),
+      t
+    );
+    const tip = addLoadArrow(p, dir, scaledReactionArrowLength(arrowBase, mag, maxPMag), group);
+    if (showValues && tip) {
+      addLoadValueLabel(
+        formatReactionValue(mag),
+        loadValueLabelPoint(p, tip, span, loadLabelScale),
+        span,
+        loadLabelScale,
+        labelGroup
+      );
+    }
   }
 }
 

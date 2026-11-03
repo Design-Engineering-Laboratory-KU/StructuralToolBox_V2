@@ -189,7 +189,7 @@ namespace StbGrasshopper
             : base(
                 "Info Load",
                 "Info Ld",
-                "Read the properties of an STb load of any kind (point, line, area, gravity, combination). Outputs that do not apply to the load kind stay empty.",
+                "Read the properties of an STb load of any kind (point, line, element point, area, gravity, combination). Outputs that do not apply to the load kind stay empty.",
                 StbCategories.Tab,
                 StbCategories.Info)
         {
@@ -207,16 +207,16 @@ namespace StbGrasshopper
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("Kind", "Kind", "Point, Line, Area, Gravity, or Combination.", GH_ParamAccess.item);
+            pManager.AddTextParameter("Kind", "Kind", "Point, Line, ElementPoint, Area, MeshArea, Gravity, or Combination.", GH_ParamAccess.item);
             pManager.AddIntegerParameter("LC", "LC", "Load case id.", GH_ParamAccess.item);
-            pManager.AddPointParameter("Point", "P", "Point load: loaded point in meters.", GH_ParamAccess.item);
-            pManager.AddVectorParameter("F", "F", "Point load: force vector in kN.", GH_ParamAccess.item);
+            pManager.AddPointParameter("Point", "P", "Point / element point load: loaded point in meters.", GH_ParamAccess.item);
+            pManager.AddVectorParameter("F", "F", "Point / element point load: force vector in kN (element point: in the axes given by Global).", GH_ParamAccess.item);
             pManager.AddVectorParameter("M", "M", "Point load: moment vector in kNm.", GH_ParamAccess.item);
-            pManager.AddLineParameter("Element Line", "L", "Line load: center line of the loaded element.", GH_ParamAccess.item);
-            pManager.AddBooleanParameter("Global", "G", "Line load: true for global, false for element local coordinates.", GH_ParamAccess.item);
+            pManager.AddLineParameter("Element Line", "L", "Line / element point load: center line of the loaded element.", GH_ParamAccess.item);
+            pManager.AddBooleanParameter("Global", "G", "Line / element point load: true for global, false for element local coordinates.", GH_ParamAccess.item);
             pManager.AddVectorParameter("Load i", "Wi", "Line load: distributed load at T0 in kN/m.", GH_ParamAccess.item);
             pManager.AddVectorParameter("Load j", "Wj", "Line load: distributed load at T1 in kN/m.", GH_ParamAccess.item);
-            pManager.AddNumberParameter("T0", "T0", "Line load: start of the segment (0 = i-end, 1 = j-end).", GH_ParamAccess.item);
+            pManager.AddNumberParameter("T0", "T0", "Line load: start of the segment (0 = i-end, 1 = j-end). Element point load: position T.", GH_ParamAccess.item);
             pManager.AddNumberParameter("T1", "T1", "Line load: end of the segment (0 = i-end, 1 = j-end).", GH_ParamAccess.item);
             pManager.AddLineParameter("Boundary", "B", "Area load: boundary element lines.", GH_ParamAccess.list);
             pManager.AddVectorParameter("Pressure", "Pr", "Area load: pressure vector in kN/m2.", GH_ParamAccess.item);
@@ -250,8 +250,19 @@ namespace StbGrasshopper
                     da.SetData(9, load.T0);
                     da.SetData(10, load.T1);
                     break;
+                case StbLoadKind.ElementPoint:
+                    da.SetData(2, load.ElementLine.PointAt(load.T0));
+                    da.SetData(3, load.Force);
+                    da.SetData(5, load.ElementLine);
+                    da.SetData(6, load.IsGlobal);
+                    da.SetData(9, load.T0);
+                    da.SetData(10, load.T1);
+                    break;
                 case StbLoadKind.Area:
                     da.SetDataList(11, load.BoundaryLines);
+                    da.SetData(12, load.Pressure);
+                    break;
+                case StbLoadKind.MeshArea:
                     da.SetData(12, load.Pressure);
                     break;
                 case StbLoadKind.Gravity:

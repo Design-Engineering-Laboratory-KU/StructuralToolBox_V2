@@ -448,7 +448,20 @@ def mdl_to_dict(mdl, relpath=None, solved=False):
         })
 
     element_loads = []
+    element_point_loads = []
     for el in mdl.elds:
+        if el.is_point:
+            f = [float(v) * 1e-3 for v in el.lds[0:3]]
+            if max(abs(x) for x in f) < 1e-12:
+                continue
+            element_point_loads.append({
+                "elem": el.eid,
+                "lc": el.lc,
+                "global": bool(el.isGlobal),
+                "f": f,
+                "t": float(el.t0),
+            })
+            continue
         w = [
             float(el.lds[0]) * 1e-3, float(el.lds[1]) * 1e-3,
             float(el.lds[2]) * 1e-3, float(el.lds[3]) * 1e-3,
@@ -637,6 +650,7 @@ def mdl_to_dict(mdl, relpath=None, solved=False):
         "reactions": reactions,
         "point_loads": point_loads,
         "element_loads": element_loads,
+        "element_point_loads": element_point_loads,
         "diaphragm_materials": diaphragm_materials,
         "diaphragms": diaphragms,
         "diaphragm_loads": diaphragm_loads,

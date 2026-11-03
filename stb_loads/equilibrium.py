@@ -145,7 +145,8 @@ def _list_other_horizontal(mdl, lc: int) -> List[Dict[str, Any]]:
     for el in getattr(mdl, "elds", []):
         if el.lc != lc:
             continue
-        rows.append({"kind": "ELOD", "elem": el.eid, "note": "horizontal component may exist"})
+        kind = "EPLD" if getattr(el, "is_point", False) else "ELOD"
+        rows.append({"kind": kind, "elem": el.eid, "note": "horizontal component may exist"})
 
     for gl in getattr(mdl, "glds", []):
         if gl.lc not in (0, lc):

@@ -197,6 +197,17 @@ namespace StbGrasshopper
                         finalRecords.Add(load.ToElodRecord(lineMatch.ElementId, lineMatch.Reversed));
                         break;
 
+                    case StbLoadKind.ElementPoint:
+                        var pointMatch = FindElement(load.ElementLine, assembledElements, tolerance);
+                        if (pointMatch.Reversed && !load.IsGlobal)
+                        {
+                            throw new InvalidOperationException(
+                                "A local-coordinate element point load references an element with reversed orientation.");
+                        }
+
+                        finalRecords.Add(load.ToEpldRecord(pointMatch.ElementId, pointMatch.Reversed));
+                        break;
+
                     case StbLoadKind.Area:
                         if (!FormsClosedLoop(load.BoundaryLines, tolerance))
                         {
@@ -219,6 +230,10 @@ namespace StbGrasshopper
 
                         finalRecords.Add(load.ToAlodRecord(boundaryIds));
                         break;
+
+                    case StbLoadKind.MeshArea:
+                        throw new InvalidOperationException(
+                            "Area load from mesh LC" + load.LoadCase + " must be split into panels with StbMeshAreaLoads first.");
 
                     default:
                         var nodeId = FindNodeId(load.Point, canonicalNodes, tolerance);

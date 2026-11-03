@@ -109,9 +109,16 @@ namespace StbGrasshopper
             var areas = new List<double>();
             var lineLoads = new List<StbLoadGoo>();
             var skipped = 0;
+            var meshAreas = 0;
 
             foreach (var load in loads)
             {
+                if (load.Kind == StbLoadKind.MeshArea)
+                {
+                    meshAreas++;
+                    continue;
+                }
+
                 if (load.Kind != StbLoadKind.Area)
                 {
                     skipped++;
@@ -155,6 +162,16 @@ namespace StbGrasshopper
                     "Skipped "
                     + skipped
                     + " non-area load(s). Connect STB Area Load.");
+            }
+
+            if (meshAreas > 0)
+            {
+                AddRuntimeMessage(
+                    GH_RuntimeMessageLevel.Warning,
+                    "Skipped "
+                    + meshAreas
+                    + " area load(s) from a mesh; their panels are found by STB Assemble Model. "
+                    + "Take the loads of its STb Model (Info Model) instead.");
             }
 
             if (lineLoads.Count > 0)
