@@ -7,6 +7,7 @@ On macOS the same command also produces a .dmg and a per-user .pkg.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import os
 import shutil
@@ -494,7 +495,33 @@ def build_pkg(payload: Path, pkg_path: Path) -> None:
     )
 
 
-def write_mac_packager(script_path: Path, name: str, stamp: str) -> None:
+def write_gzip_archive(archive_path: Path, write_members) -> None:
+    """Write a tar.gz that macOS /usr/bin/tar can extract.
+
+    Python's tarfile.open(..., "w:gz") on Windows can produce a gzip
+    stream that Apple's libarchive reports as
+    "truncated gzip input: Unknown error: -1" (often while extracting a
+    large wheel). A gzip header with no filename and mtime=0 avoids that.
+    """
+    if archive_path.exists():
+        archive_path.unlink()
+    raw = archive_path.open("wb")
+    gz = gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9)
+    try:
+        with tarfile.open(fileobj=gz, mode="w", format=tarfile.PAX_FORMAT, encoding="utf-8") as tar:
+            write_members(tar)
+    finally:
+        gz.close()
+        raw.close()
+
+
+def write_mac_packager(
+    script_path: Path,
+    name: str,
+    stamp: str,
+    expected_size: int,
+    expected_sha256: str,
+) -> None:
     """Script that turns the tar.gz into .dmg and .pkg on a Mac without the repository.
 
     preinstall, postinstall and welcome.html are embedded so the tar.gz and this
@@ -517,6 +544,8 @@ NAME="{name}"
 TARBALL="$HERE/$NAME.tar.gz"
 DMG="$HERE/StructuralToolbox_Mac_{stamp}.dmg"
 PKG="$HERE/StructuralToolbox_Setup_Mac_{stamp}.pkg"
+EXPECTED_SIZE="{expected_size}"
+EXPECTED_SHA256="{expected_sha256}"
 
 if [[ "$(uname)" != "Darwin" ]]; then
   echo "このスクリプトは macOS で実行してください。" >&2
@@ -531,8 +560,29 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+SIZE="$(stat -f%z "$TARBALL")"
+if [[ "$SIZE" != "$EXPECTED_SIZE" ]]; then
+  echo "ファイルが途切れています: $TARBALL" >&2
+  echo "  実際: ${{SIZE}} バイト / 期待: ${{EXPECTED_SIZE}} バイト" >&2
+  echo "デスクトップや iCloud Drive に置くと、コピーが終わる前に使われることがあります。" >&2
+  echo "Downloads などローカルのフォルダへ置き直し、サイズが揃ってから再実行してください。" >&2
+  exit 1
+fi
+if command -v shasum >/dev/null 2>&1; then
+  GOT="$(shasum -a 256 "$TARBALL" | awk '{{print $1}}')"
+  if [[ "$GOT" != "$EXPECTED_SHA256" ]]; then
+    echo "チェックサムが一致しません: $TARBALL" >&2
+    echo "  実際: $GOT" >&2
+    echo "  期待: $EXPECTED_SHA256" >&2
+    echo "コピーが途中で切れているか、別の版のファイルです。コピーし直してください。" >&2
+    exit 1
+  fi
+fi
+
 echo "展開しています: $TARBALL"
-tar -xzf "$TARBALL" -C "$WORK"
+# Apple の tar -xzf は、Windows で作った gzip を
+# 「truncated gzip input」と誤ることがある。gzip で伸長してから tar する。
+gzip -dc "$TARBALL" | tar -xf - -C "$WORK"
 STAGE="$WORK/$NAME"
 PAYLOAD="$STAGE/payload"
 xattr -cr "$STAGE" 2>/dev/null || true
@@ -606,16 +656,21 @@ def main() -> None:
     (stage / "インストール.command").write_bytes(lf_bytes(MAC / "インストール.command"))
 
     DIST.mkdir(parents=True, exist_ok=True)
-    if archive_path.exists():
-        archive_path.unlink()
-    with tarfile.open(archive_path, "w:gz", format=tarfile.PAX_FORMAT, encoding="utf-8") as tar:
+
+    def write_members(tar: tarfile.TarFile) -> None:
         add_tree(tar, stage, name)
         for folder, archive in pythons.items():
             add_upstream_python(tar, archive, folder, name)
         write_version_notes(tar, name, version)
 
-    size_mb = archive_path.stat().st_size / (1024 * 1024)
+    write_gzip_archive(archive_path, write_members)
+    digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    sha_path = archive_path.with_name(archive_path.name + ".sha256")
+    sha_path.write_text(f"{digest}  {archive_path.name}\n", encoding="ascii")
+    size_bytes = archive_path.stat().st_size
+    size_mb = size_bytes / (1024 * 1024)
     print(f"Done: {archive_path} ({size_mb:.1f} MB)")
+    print(f"SHA256: {digest}")
 
     if sys.platform == "darwin":
         print("Extracting standalone Python for the disk image and package...")
@@ -635,7 +690,7 @@ def main() -> None:
         print(f"Done: {pkg_path}")
     else:
         packager = DIST / f"StructuralToolbox_Mac_make_pkg_{stamp}.sh"
-        write_mac_packager(packager, name, stamp)
+        write_mac_packager(packager, name, stamp, size_bytes, digest)
         print(f"Done: {packager}")
         print("")
         print("This PC produced the tar.gz installer.")
