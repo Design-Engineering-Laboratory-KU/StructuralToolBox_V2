@@ -87,7 +87,7 @@ const OPTIONS_DEFAULTS = {
   loadArrowSize: 1.0,
   reactionArrowSize: 1.0,
   inputLoadType: "all",
-  supportGizmoSize: 25,
+  supportGizmoSize: 60,
   axesSize: 100,
   supportLineWidth: 2,
   dispContourLineWidth: 2.5,
@@ -462,7 +462,6 @@ let viewerOptions = Object.assign({}, OPTIONS_DEFAULTS);
 let displayPrefs = Object.assign({}, RESULTS_DISPLAY_DEFAULTS);
 let wideLineMaterials = new Set();
 let dispContourScaleKey = null;
-let supportGizmoEntries = [];
 let reactionForceEntries = [];
 let nodeLabelEntries = [];
 let elemLabelEntries = [];
@@ -471,7 +470,6 @@ let _nodeLabelLeaderMat = null;
 let currentModelPath = null;
 const inputEditors = new Map();
 let showWorldAxes = RESULTS_DISPLAY_DEFAULTS.showWorldAxes;
-const _supportDiscTexCache = new Map();
 const _sectionProfileCache = new Map();
 const _sectionSolidGeometryCache = new Map();
 const SECTION_SOLID_SEGMENTS = 24;
@@ -3896,7 +3894,6 @@ function clearWideLineMaterials() {
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
-  updateSupportGizmoPositions();
   updateReactionForceDisplay();
   updateNodeLabelPositions();
   updateElemLabelPositions();
@@ -4917,7 +4914,6 @@ function buildModelScene(model) {
   clearGroup(modelGroup);
   clearGroup(labelGroup);
   clearWideLineMaterials();
-  supportGizmoEntries = [];
   reactionForceEntries = [];
   nodeLabelEntries = [];
   elemLabelEntries = [];
@@ -5127,11 +5123,7 @@ function buildModelScene(model) {
       const n = nm[s.node];
       if (!n || !isNodeVisible(n.id)) continue;
       const p = nodePosition(n, model, lc, defFac, deformed);
-      const sp = addSupportDisc(
-        supportGizmoCenter(p, model, supSize, camera, renderer),
-        s.fixed, supSize, modelGroup
-      );
-      supportGizmoEntries.push({ nodePos: p, gizmoRadius: supSize, sprite: sp });
+      addSupportGlyph(p, s.fixed, supSize, modelGroup);
     }
   }
   if (showEJnt) {
@@ -5732,15 +5724,6 @@ function updateForceLabelPositions() {
   }
 }
 
-function updateSupportGizmoPositions() {
-  if (!camera || !renderer || !currentModel || supportGizmoEntries.length === 0) return;
-  for (const entry of supportGizmoEntries) {
-    supportGizmoCenter(
-      entry.nodePos, currentModel, entry.gizmoRadius, camera, renderer, entry.sprite.position
-    );
-  }
-}
-
 function reactionForceDirection(axisIndex, fval) {
   return REACTION_TRANS_AXES[axisIndex].clone().multiplyScalar(fval >= 0 ? 1 : -1);
 }
@@ -6124,100 +6107,239 @@ function addWideLineSegmentsFromPts(pts, color, group, renderOrder, lineWidthPx,
   return lines;
 }
 
-function supportDiscTextureKey(fixed) {
-  return fixed.map(function (f) { return f ? "1" : "0"; }).join("");
-}
+// Support glyphs, matching the Grasshopper "View Support Condition" component
+// (grasshopper/gha/StbViewSupportConditionComponent.cs). Two independent cues:
+// the body shape is the rotational condition (box = rigid, wedge ridge = hinge
+// line, pyramid apex = ball joint, orange pins = free rotation axes in mixed
+// cases) and what carries the body is the translational condition (ground
+// plate = fixed, rollers / balls = free, guide bars = vertical slider).
+const SUPPORT_SIZE_OPTION_VERSION = 2;
+const SUPPORT_GLYPH_COLORS = {
+  rigid: 0x236941,
+  hinge: 0x2869af,
+  pin: 0xdc911e,
+  roller: 0xcdd2d7,
+  ground: 0x4b525a,
+};
+const SUPPORT_AXES = [
+  new THREE.Vector3(1, 0, 0),
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, 0, 1),
+];
+const _Z_UP = SUPPORT_AXES[2];
 
-function fillSupportSector(ctx, cx, cy, r, startAngle, endAngle, fillColor) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.arc(cx, cy, r, startAngle, endAngle);
-  ctx.closePath();
-  ctx.fillStyle = fillColor;
-  ctx.fill();
-  ctx.restore();
-}
-
-function createSupportDiscTexture(fixed) {
-  const key = supportDiscTextureKey(fixed);
-  if (_supportDiscTexCache.has(key)) {
-    return _supportDiscTexCache.get(key);
-  }
-
-  const px = 160;
-  const canvas = document.createElement("canvas");
-  canvas.width = px;
-  canvas.height = px;
-  const ctx = canvas.getContext("2d");
-  const cx = px / 2;
-  const cy = px / 2;
-  const r = px / 2 - 6;
-  const sectorColors = [
-    COLORS.supportTrans, COLORS.supportTrans, COLORS.supportTrans,
-    COLORS.supportRot, COLORS.supportRot, COLORS.supportRot,
-  ];
-  const outline = supportDiscOutlineColor();
-
-  ctx.clearRect(0, 0, px, px);
-
-  for (let i = 0; i < 6; i++) {
-    const a0 = -Math.PI / 2 + i * (Math.PI / 3);
-    const a1 = a0 + Math.PI / 3;
-    if (fixed[i]) {
-      fillSupportSector(ctx, cx, cy, r, a0, a1, colorHex(sectorColors[i]));
-    }
-  }
-
-  ctx.strokeStyle = outline;
-  ctx.globalAlpha = ALPHA.opaque;
-  ctx.lineWidth = 10.0;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.stroke();
-
-  for (let i = 0; i < 6; i++) {
-    const a = -Math.PI / 2 + i * (Math.PI / 3);
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
-    ctx.stroke();
-  }
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.needsUpdate = true;
-  _supportDiscTexCache.set(key, tex);
-  return tex;
-}
-
-function clearSupportDiscTextureCache() {
-  for (const tex of _supportDiscTexCache.values()) {
-    try {
-      tex.dispose();
-    } catch (e) { /* ignore */ }
-  }
-  _supportDiscTexCache.clear();
-}
-
-function supportDiscOutlineColor() {
+function supportGlyphEdgeColor() {
   const palette = THEME_RENDER_COLORS[uiTheme] || THEME_RENDER_COLORS.dark;
   return palette.supportOutline;
 }
 
-function addSupportDisc(center, fixed, size, group) {
-  const tex = createSupportDiscTexture(fixed);
-  const mat = new THREE.SpriteMaterial({
-    map: tex,
-    transparent: true,
-    depthTest: true,
-    depthWrite: false,
-  });
-  const sp = new THREE.Sprite(mat);
-  sp.position.copy(center);
-  sp.scale.set(size * 2, size * 2, 1);
-  sp.renderOrder = 8;
-  group.add(sp);
-  return sp;
+/** Flat-shaded mesh geometry from points + polygon faces (fan-triangulated, CCW = outward). */
+function supportPolyGeometry(points, faces) {
+  const pos = [];
+  for (const f of faces) {
+    for (let k = 1; k + 1 < f.length; k++) {
+      for (const idx of [f[0], f[k], f[k + 1]]) {
+        const p = points[idx];
+        pos.push(p.x, p.y, p.z);
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Box whose top face is centred on `top`; local x follows the horizontal `xAxis`. */
+function supportPrismGeometry(top, halfX, halfY, height, xAxis) {
+  const x = (xAxis || SUPPORT_AXES[0]).clone().normalize();
+  const y = new THREE.Vector3().crossVectors(_Z_UP, x).normalize();
+  const pts = [];
+  for (const dz of [-height, 0]) {
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      pts.push(top.clone().addScaledVector(x, sx * halfX).addScaledVector(y, sy * halfY)
+        .addScaledVector(_Z_UP, dz));
+    }
+  }
+  return supportPolyGeometry(pts, [
+    [0, 3, 2, 1], [4, 5, 6, 7],
+    [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7],
+  ]);
+}
+
+function supportPyramidGeometry(apex, half, height) {
+  const b = apex.clone().addScaledVector(_Z_UP, -height);
+  const pts = [
+    new THREE.Vector3(b.x - half, b.y - half, b.z),
+    new THREE.Vector3(b.x + half, b.y - half, b.z),
+    new THREE.Vector3(b.x + half, b.y + half, b.z),
+    new THREE.Vector3(b.x - half, b.y + half, b.z),
+    apex.clone(),
+  ];
+  return supportPolyGeometry(pts, [[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4], [3, 2, 1, 0]]);
+}
+
+/** Triangular prism whose top ridge runs along X (axis 0) or Y (axis 1) through `ridge`. */
+function supportWedgeGeometry(ridge, axis, halfLength, halfWidth, height) {
+  const along = SUPPORT_AXES[axis];
+  const across = SUPPORT_AXES[1 - axis];
+  const v = function (sa, sc, dz) {
+    return ridge.clone().addScaledVector(along, sa * halfLength)
+      .addScaledVector(across, sc * halfWidth).addScaledVector(_Z_UP, dz);
+  };
+  const pts = [
+    v(-1, 0, 0), v(-1, 1, -height), v(-1, -1, -height),
+    v(1, 0, 0), v(1, 1, -height), v(1, -1, -height),
+  ];
+  return supportPolyGeometry(pts, [
+    [0, 1, 2], [3, 5, 4], [0, 3, 4, 1], [1, 4, 5, 2], [2, 5, 3, 0],
+  ]);
+}
+
+function supportRodGeometry(centre, axis, radius, length) {
+  const geo = new THREE.CylinderGeometry(radius, radius, length, 16);
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.clone().normalize());
+  geo.applyQuaternion(q);
+  geo.translate(centre.x, centre.y, centre.z);
+  return geo;
+}
+
+function supportBallGeometry(centre, radius) {
+  const geo = new THREE.SphereGeometry(radius, 16, 12);
+  geo.translate(centre.x, centre.y, centre.z);
+  return geo;
+}
+
+function addSupportGlyphPart(group, geo, color, edgeColor) {
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: color, side: THREE.DoubleSide }));
+  mesh.renderOrder = 8;
+  group.add(mesh);
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo, 30),
+    new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.55 })
+  );
+  edges.renderOrder = 8;
+  group.add(edges);
+}
+
+function addSupportGlyphBody(parts, p, size, rFixed) {
+  const height = size * 0.9;
+  const half = size * 0.6;
+  const xFree = !rFixed[0];
+  const yFree = !rFixed[1];
+  const zFree = !rFixed[2];
+  const freeCount = (xFree ? 1 : 0) + (yFree ? 1 : 0) + (zFree ? 1 : 0);
+
+  if (freeCount === 0) {
+    parts.push([supportPrismGeometry(p, half, half, height), SUPPORT_GLYPH_COLORS.rigid]);
+    return;
+  }
+  if (freeCount === 3) {
+    parts.push([supportPyramidGeometry(p, half, height), SUPPORT_GLYPH_COLORS.hinge]);
+    return;
+  }
+  if (xFree && yFree) {
+    parts.push([supportPyramidGeometry(p, half, height), SUPPORT_GLYPH_COLORS.hinge]);
+  } else if (xFree || yFree) {
+    parts.push([supportWedgeGeometry(p, xFree ? 0 : 1, half, half, height), SUPPORT_GLYPH_COLORS.hinge]);
+  } else {
+    parts.push([supportPrismGeometry(p, half, half, height), SUPPORT_GLYPH_COLORS.hinge]);
+  }
+  // Only mixed conditions need pins: a plain box or pyramid already says
+  // "no rotation free" or "every rotation free".
+  const pinLength = size * 1.8;
+  const pinRadius = size * 0.12;
+  for (let i = 0; i < 3; i++) {
+    if (!rFixed[i]) {
+      parts.push([supportRodGeometry(p, SUPPORT_AXES[i], pinRadius, pinLength), SUPPORT_GLYPH_COLORS.pin]);
+    }
+  }
+}
+
+function addSupportGlyphBase(parts, rails, p, size, tFixed) {
+  if (!tFixed[2]) {
+    addSupportGlyphVerticalSlider(parts, rails, p, size, tFixed);
+    return;
+  }
+  const bodyBottom = p.clone().addScaledVector(_Z_UP, -size * 0.9);
+  const freeHorizontal = [];
+  if (!tFixed[0]) freeHorizontal.push(0);
+  if (!tFixed[1]) freeHorizontal.push(1);
+  const radius = size * 0.17;
+  let plateTop = bodyBottom;
+
+  if (freeHorizontal.length === 1) {
+    const along = SUPPORT_AXES[freeHorizontal[0]];
+    const across = SUPPORT_AXES[1 - freeHorizontal[0]];
+    const centre = bodyBottom.clone().addScaledVector(_Z_UP, -radius);
+    for (const side of [-1, 1]) {
+      parts.push([
+        supportRodGeometry(centre.clone().addScaledVector(along, size * 0.42 * side), across, radius, size * 0.9),
+        SUPPORT_GLYPH_COLORS.roller,
+      ]);
+    }
+    plateTop = centre.clone().addScaledVector(_Z_UP, -radius);
+    for (const side of [-1, 1]) {
+      const o = plateTop.clone().addScaledVector(across, size * 0.5 * side);
+      rails.push(o.clone().addScaledVector(along, -size * 0.95), o.clone().addScaledVector(along, size * 0.95));
+    }
+  } else if (freeHorizontal.length === 2) {
+    const centre = bodyBottom.clone().addScaledVector(_Z_UP, -radius);
+    for (const dx of [-1, 1]) {
+      for (const dy of [-1, 1]) {
+        parts.push([
+          supportBallGeometry(
+            new THREE.Vector3(centre.x + size * 0.42 * dx, centre.y + size * 0.42 * dy, centre.z), radius
+          ),
+          SUPPORT_GLYPH_COLORS.roller,
+        ]);
+      }
+    }
+    plateTop = centre.clone().addScaledVector(_Z_UP, -radius);
+  }
+  parts.push([supportPrismGeometry(plateTop, size * 0.95, size * 0.95, size * 0.12), SUPPORT_GLYPH_COLORS.ground]);
+}
+
+/** Tz free: the body is held by guide bars instead of resting on the ground. */
+function addSupportGlyphVerticalSlider(parts, rails, p, size, tFixed) {
+  if (!tFixed[0] && !tFixed[1]) return;
+  const guide = tFixed[0] ? SUPPORT_AXES[0] : SUPPORT_AXES[1];
+  const rollerAxis = tFixed[0] ? SUPPORT_AXES[1] : SUPPORT_AXES[0];
+  const radius = size * 0.13;
+  const mid = p.clone().addScaledVector(_Z_UP, -size * 0.45);
+  for (const side of [-1, 1]) {
+    const barTop = p.clone().addScaledVector(guide, size * 0.92 * side).addScaledVector(_Z_UP, size * 0.45);
+    parts.push([supportPrismGeometry(barTop, size * 0.1, size * 0.5, size * 1.8, guide), SUPPORT_GLYPH_COLORS.ground]);
+    parts.push([
+      supportRodGeometry(mid.clone().addScaledVector(guide, size * 0.73 * side), rollerAxis, radius, size * 0.7),
+      SUPPORT_GLYPH_COLORS.roller,
+    ]);
+    const railBase = p.clone().addScaledVector(guide, size * 1.02 * side);
+    rails.push(
+      railBase.clone().addScaledVector(_Z_UP, size * 0.45),
+      railBase.clone().addScaledVector(_Z_UP, -size * 1.35)
+    );
+  }
+}
+
+/**
+ * Add a 3D support glyph hanging below node position `p`.
+ * `fixed` = [Tx, Ty, Tz, Rx, Ry, Rz] (true = restrained).
+ */
+function addSupportGlyph(p, fixed, size, group) {
+  const f = (fixed || []).map(Boolean);
+  const parts = [];
+  const rails = [];
+  addSupportGlyphBody(parts, p, size, [f[3], f[4], f[5]]);
+  addSupportGlyphBase(parts, rails, p, size, [f[0], f[1], f[2]]);
+  const edgeColor = supportGlyphEdgeColor();
+  for (const [geo, color] of parts) addSupportGlyphPart(group, geo, color, edgeColor);
+  if (rails.length) {
+    const geo = new THREE.BufferGeometry().setFromPoints(rails);
+    const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: COLORS.supportAnchor }));
+    lines.renderOrder = 8;
+    group.add(lines);
+  }
 }
 
 function loadArrowLength(model) {
@@ -11210,7 +11332,9 @@ function applyOptionsToUi() {
 
 function saveViewerOptions() {
   try {
-    localStorage.setItem(OPTIONS_STORAGE_KEY, JSON.stringify(viewerOptions));
+    localStorage.setItem(OPTIONS_STORAGE_KEY, JSON.stringify(
+      Object.assign({}, viewerOptions, { supportSizeVersion: SUPPORT_SIZE_OPTION_VERSION })
+    ));
   } catch (e) { /* ignore */ }
 }
 
@@ -11237,7 +11361,6 @@ function applyRenderTheme(theme) {
     _nodeLabelLeaderMat.color.setHex(COLORS.nodeLabel);
     _nodeLabelLeaderMat.needsUpdate = true;
   }
-  clearSupportDiscTextureCache();
 }
 
 function preferredUiTheme() {
@@ -11335,7 +11458,10 @@ function loadViewerOptions() {
     const st = JSON.parse(raw);
     if (typeof st.loadArrowSize === "number") viewerOptions.loadArrowSize = st.loadArrowSize;
     if (typeof st.reactionArrowSize === "number") viewerOptions.reactionArrowSize = st.reactionArrowSize;
-    if (typeof st.supportGizmoSize === "number") viewerOptions.supportGizmoSize = st.supportGizmoSize;
+    // Sizes saved before the 3D support glyphs (default 25%) are dropped so the new default applies.
+    if (typeof st.supportGizmoSize === "number" && st.supportSizeVersion === SUPPORT_SIZE_OPTION_VERSION) {
+      viewerOptions.supportGizmoSize = st.supportGizmoSize;
+    }
     if (typeof st.axesSize === "number") viewerOptions.axesSize = st.axesSize;
     if (typeof st.supportLineWidth === "number") viewerOptions.supportLineWidth = st.supportLineWidth;
     if (typeof st.dispContourLineWidth === "number") viewerOptions.dispContourLineWidth = st.dispContourLineWidth;
