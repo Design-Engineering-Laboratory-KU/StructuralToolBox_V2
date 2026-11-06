@@ -19,25 +19,14 @@ if not exist ".venv\Scripts\stb.exe" echo [エラー] セットアップが完�
 if not exist ".venv\Scripts\stb.exe" pause
 if not exist ".venv\Scripts\stb.exe" exit /b 1
 
-echo.
-echo ========================================
-echo  Structural Toolbox
-echo ========================================
-echo.
-echo ブラウザが開きます。
-echo この黒い画面は閉じないでください（ログが表示されます）。
+REM コンソールなしで起動する（pythonw.exe）。この画面はすぐ閉じます。
+REM 終了するときはアプリのウィンドウを閉じるだけでよい（サーバーも止まる）。
+REM ログ: %LOCALAPPDATA%\StructuralToolbox\logs\stb_gui.log
+REM ログをコンソールで見たいときは「Start Structural Toolbox (debug).bat」を使う。
+if exist ".venv\Scripts\pythonw.exe" start "" ".venv\Scripts\pythonw.exe" -E -s -m stb_cli gui
+if exist ".venv\Scripts\pythonw.exe" exit /b 0
+
+REM pythonw.exe がない古い .venv 向け: 従来どおりコンソールで動かす。
 echo 終了するときはこの画面を閉じてください。
-echo デバッグ用: 「Start Structural Toolbox (debug).bat」
-echo.
-
 ".venv\Scripts\stb.exe" gui
-set "RC=%ERRORLEVEL%"
-
-echo.
-if "%RC%"=="10" echo [お知らせ] すでに別の画面でサーバーが動いています。
-if "%RC%"=="10" echo 完全に終了するには、その画面を閉じてから再度起動してください。
-if "%RC%"=="0" echo サーバーを終了しました。
-if not "%RC%"=="0" if not "%RC%"=="10" echo [注意] 終了コード %RC%
-echo.
 pause
-exit /b %RC%

@@ -791,9 +791,15 @@ class ProjectDefinition:
     load_conditions: LoadConditionSettings
     report: ReportSettings
     source_path: Optional[str] = None
+    wall_quantity: "WallQuantitySettings" = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.wall_quantity is None:
+            from stb_project.wall_quantity_settings import WallQuantitySettings
+            object.__setattr__(self, "wall_quantity", WallQuantitySettings())
 
     def to_dict(self):
-        return {
+        out = {
             "schema": self.schema,
             "model": {"dat": self.dat_path},
             "building": {
@@ -876,6 +882,10 @@ class ProjectDefinition:
                 "include_warnings": self.report.include_warnings,
             },
         }
+        if not self.wall_quantity.is_default:
+            from stb_project.wall_quantity_settings import wall_quantity_settings_to_dict
+            out["wall_quantity"] = wall_quantity_settings_to_dict(self.wall_quantity)
+        return out
 
 
 def _seismic_settings_to_dict(seismic: SeismicLoadSettings):
@@ -983,7 +993,7 @@ def validate_project_dict(raw, source_path=None):
         raw,
         [
             "schema", "model", "building", "grids", "stories", "member_classes",
-            "design_checks", "load_conditions", "report",
+            "design_checks", "load_conditions", "report", "wall_quantity",
         ],
         "project",
     )
@@ -1004,6 +1014,8 @@ def validate_project_dict(raw, source_path=None):
     design_checks = _parse_design_checks(raw.get("design_checks", {}))
     load_conditions = _parse_load_conditions(raw.get("load_conditions", {}))
     report = _parse_report(_required(raw, "report", "project"))
+    from stb_project.wall_quantity_settings import parse_wall_quantity_settings
+    wall_quantity = parse_wall_quantity_settings(raw.get("wall_quantity"))
 
     return ProjectDefinition(
         schema=schema,
@@ -1016,6 +1028,7 @@ def validate_project_dict(raw, source_path=None):
         load_conditions=load_conditions,
         report=report,
         source_path=source_path,
+        wall_quantity=wall_quantity,
     )
 
 
@@ -1886,3 +1899,7 @@ def _reject_unknown(raw, allowed, path):
         if key not in allowed:
             raise ProjectSchemaError(path + "." + str(key) + " is not supported")
 
+
+from stb_project.wall_quantity_settings import WALL_QUANTITY_JSON_SCHEMA as _WALL_QUANTITY_JSON_SCHEMA  # noqa: E402
+
+PROJECT_JSON_SCHEMA["properties"]["wall_quantity"] = _WALL_QUANTITY_JSON_SCHEMA

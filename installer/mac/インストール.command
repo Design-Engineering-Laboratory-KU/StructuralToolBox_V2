@@ -101,7 +101,7 @@ display dialog "インストールが完了しました。
 
 デスクトップ、またはアプリケーションフォルダの「Structural Toolbox」から起動できます。
 
-終了するときは、開いたターミナルのウィンドウを閉じてください。" buttons {"OK"} default button 1 with title "Structural Toolbox"
+終了するときは、アプリのウィンドウを閉じてください。" buttons {"OK"} default button 1 with title "Structural Toolbox"
 EOF
 
 echo

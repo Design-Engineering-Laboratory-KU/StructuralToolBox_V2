@@ -189,6 +189,7 @@ const el = {
   btnProject: document.getElementById("btnProject"),
   btnLoads: document.getElementById("btnLoads"),
   btnPractice: document.getElementById("btnPractice"),
+  btnWallQuantity: document.getElementById("btnWallQuantity"),
   btnOutput: document.getElementById("btnOutput"),
   lcSelect: document.getElementById("lcSelect"),
   defFactor: document.getElementById("defFactor"),
@@ -8869,6 +8870,7 @@ const CHILD_WINDOW_NAMES = {
   project: "stb_gui_project",
   loadsVerify: "stb_loads_verify",
   practiceVerify: "stb_practice_verify",
+  wallQuantity: "stb_wall_quantity",
   results: "stb_gui_results",
 };
 
@@ -10131,6 +10133,31 @@ function openPracticeVerifyWindow() {
   setStatus(path + " — structural indices opened");
 }
 
+function openWallQuantityReportWindow() {
+  const path = getCurrentModelPath();
+  if (!path) {
+    setStatus("Open a model before using Wall quantity…");
+    return;
+  }
+  let url;
+  try {
+    url = guiApiUrl("/api/wall-quantity/report?path=" + encodeURIComponent(path), window);
+  } catch (ex) {
+    setStatus("Error: " + ex.message);
+    return;
+  }
+  const w = openNamedChildUrl(
+    "wallQuantity",
+    url,
+    "width=980,height=900,scrollbars=yes,resizable=yes"
+  );
+  if (!w) {
+    setStatus("Popup blocked — allow popups for this site");
+    return;
+  }
+  setStatus(path + " — wall quantity report opened");
+}
+
 window.openProjectWindow = openProjectWindow;
 window.reloadCurrentModel = () => loadSelectedModel(false, { keepCamera: true });
 window.refreshWindVisual = () => loadWindVisualForCurrentModel().then(function () {
@@ -10870,6 +10897,9 @@ el.btnProject.addEventListener("click", () => openProjectWindow());
 el.btnLoads.addEventListener("click", () => openLoadsVerifyWindow());
 if (el.btnPractice) {
   el.btnPractice.addEventListener("click", () => openPracticeVerifyWindow());
+}
+if (el.btnWallQuantity) {
+  el.btnWallQuantity.addEventListener("click", () => openWallQuantityReportWindow());
 }
 el.btnOutput.addEventListener("click", () => openResultsWindow());
 el.lcSelect.addEventListener("change", () => {
