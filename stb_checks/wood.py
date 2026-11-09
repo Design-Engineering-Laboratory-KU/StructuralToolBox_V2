@@ -1,13 +1,25 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Optional, Tuple
 
-from stb_project import ProjectDefinition, WoodAllowableStresses
+from stb_checks import wood_standard
+from stb_checks.wood_standard import WoodStandardElement, element_chord_deflection
+from stb_project import ProjectDefinition, WoodAllowableStresses, WoodMemberCondition
 
 
 CHECKED_MEMBER_KINDS = ("beam", "column", "brace")
 DEFAULT_TOLERANCE = 1.0e-9
 STRESS_UNIT = 1.0e6  # N/mm2 to N/m2
+
+METHOD_SIMPLIFIED = "simplified"
+METHOD_STANDARD = "standard"
+STATUS_OK = "OK"
+STATUS_NG = "NG"
+STATUS_WARN = "WARN"
+SIMPLIFIED_METHOD_WARNING = (
+    "木造検定は簡易法です。荷重継続期間と座屈を考慮していないため、"
+    "design_checks.wood.materials に基準強度を設定してください。"
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +48,10 @@ class WoodElementCheck:
     combined_ratio: float
     status: str
     demand: WoodCheckDemand
+    duration: str = ""
+    location: str = ""
+    messages: Tuple[str, ...] = ()
+    standard: Optional[WoodStandardElement] = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +59,8 @@ class WoodCheckTables:
     element_checks: Tuple[dict, ...]
     member_classes: Tuple[dict, ...]
     wall_checks: Tuple[dict, ...]
+    standard_sections: Tuple[dict, ...] = ()
+    standard_results: Tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -53,6 +71,14 @@ class WoodCheckSummary:
     max_ratio: float
     status: str
     tables: WoodCheckTables
+    method: str = METHOD_SIMPLIFIED
+
+
+@dataclass(frozen=True)
+class _StandardContext:
+    materials: dict
+    durations: dict
+    free_nodes: frozenset
 
 
 @dataclass(frozen=True)
@@ -71,10 +97,12 @@ class WoodWallCheck:
 
 
 def build_wood_check_summary(mdl, project: ProjectDefinition):
-    """Build MVP wood member checks for beams, columns, and braces.
+    """Build wood member checks for beams, columns, and braces.
 
-    Stresses are calculated from solved member end forces. Allowable stresses
-    in project JSON are expected in N/mm2 and converted to internal N/m2.
+    With design_checks.wood.materials set, members are checked by the standard
+    method (load duration, buckling, bearing, deflection). Otherwise the
+    simplified MVP check runs and the summary carries a warning saying so.
+    Strengths in project JSON are in N/mm2 and converted to internal N/m2.
     """
 
     warnings = []
@@ -83,6 +111,12 @@ def build_wood_check_summary(mdl, project: ProjectDefinition):
 
     load_cases = _load_cases_to_check(mdl, project, warnings)
     load_case_indices = {lc: idx for idx, lc in enumerate(mdl.lcs)}
+    standard = None
+    if project.design_checks.wood.materials:
+        standard = _standard_context(mdl, project, load_cases, warnings)
+    else:
+        warnings.append(SIMPLIFIED_METHOD_WARNING)
+
     checks = []
     for member_class in project.member_classes:
         if member_class.kind not in CHECKED_MEMBER_KINDS:
@@ -100,7 +134,14 @@ def build_wood_check_summary(mdl, project: ProjectDefinition):
             if getattr(e, "forces", None) is None:
                 warnings.append("Element {0} has no solved forces and was skipped.".format(element_id))
                 continue
-            checks.append(_check_element(e, member_class, load_cases, load_case_indices, project, warnings))
+            if standard is None:
+                checks.append(_check_element(e, member_class, load_cases, load_case_indices, project, warnings))
+            else:
+                checks.append(
+                    _check_element_standard(
+                        e, member_class, load_cases, load_case_indices, standard, project, warnings
+                    )
+                )
 
     wall_checks = _check_wood_rated_walls(mdl, load_cases, load_case_indices, warnings)
 
@@ -109,7 +150,7 @@ def build_wood_check_summary(mdl, project: ProjectDefinition):
 
     max_ratio = max([c.combined_ratio for c in checks] + [wc.utilization_ratio for wc in wall_checks] + [0.0])
     has_any = bool(checks or wall_checks)
-    status = "OK" if has_any and max_ratio <= 1.0 else "NG" if has_any else "WARN"
+    status = _overall_status([c.status for c in checks] + [wc.status for wc in wall_checks]) if has_any else STATUS_WARN
     tables = _build_tables(checks, wall_checks, project)
     return WoodCheckSummary(
         element_checks=tuple(checks),
@@ -118,6 +159,120 @@ def build_wood_check_summary(mdl, project: ProjectDefinition):
         max_ratio=max_ratio,
         status=status,
         tables=tables,
+        method=METHOD_SIMPLIFIED if standard is None else METHOD_STANDARD,
+    )
+
+
+def _overall_status(statuses):
+    if STATUS_NG in statuses:
+        return STATUS_NG
+    if STATUS_WARN in statuses:
+        return STATUS_WARN
+    return STATUS_OK
+
+
+def _standard_context(mdl, project, load_cases, warnings):
+    settings = project.design_checks.wood
+    explicit = {d.load_case: d.duration for d in settings.load_case_durations}
+    combinations = {c.load_case: c.duration for c in project.load_conditions.load_combinations}
+    durations = {}
+    for lc in load_cases:
+        duration = explicit.get(lc, combinations.get(lc))
+        if duration is None:
+            warnings.append("Load case {0} has no duration; long-term allowables were used.".format(lc))
+            duration = wood_standard.LONG_TERM
+        durations[lc] = duration
+    return _StandardContext(
+        materials={m.name: m for m in settings.materials},
+        durations=durations,
+        free_nodes=_free_end_nodes(mdl),
+    )
+
+
+def _free_end_nodes(mdl):
+    """Nodes that belong to exactly one member and have no support."""
+
+    counts = {}
+    for e in mdl.elms:
+        counts[id(e.n0)] = counts.get(id(e.n0), 0) + 1
+        counts[id(e.n1)] = counts.get(id(e.n1), 0) + 1
+    supported = {id(c.nd) for c in mdl.cons}
+    return frozenset(node for node, count in counts.items() if count == 1 and node not in supported)
+
+
+def _condition_for(settings, member_class):
+    by_class = [c for c in settings.conditions if c.member_class == member_class.name]
+    if by_class:
+        return by_class[0]
+    by_kind = [c for c in settings.conditions if c.kind == member_class.kind]
+    if by_kind:
+        return by_kind[0]
+    return WoodMemberCondition()
+
+
+def _check_element_standard(e, member_class, load_cases, load_case_indices, context, project, warnings):
+    settings = project.design_checks.wood
+    material = context.materials.get(e.sec.mat.name)
+    if material is None:
+        warnings.append(
+            "Element {0}: material {1} has no base strengths and was not checked.".format(e.id, e.sec.mat.name)
+        )
+        return _unchecked_element(e, member_class, load_cases, load_case_indices)
+    if not wood_standard.is_supported_section(e.sec):
+        warnings.append("Element {0}: only rectangular sections are supported and it was not checked.".format(e.id))
+        return _unchecked_element(e, member_class, load_cases, load_case_indices)
+
+    is_cantilever = (id(e.n0) in context.free_nodes) != (id(e.n1) in context.free_nodes)
+    result = wood_standard.check_element(
+        e,
+        material,
+        _condition_for(settings, member_class),
+        member_class.kind,
+        load_cases,
+        load_case_indices,
+        context.durations,
+        is_cantilever=is_cantilever,
+        fallback_deflection_ratio=settings.deflection_limit_ratio,
+    )
+    governing = result.governing
+    demand = _demand_for_load_case(e, governing.load_case, load_case_indices[governing.load_case])
+    return WoodElementCheck(
+        element_id=e.id,
+        member_class=member_class.name,
+        kind=member_class.kind,
+        section=e.sec.name,
+        material=e.sec.mat.name,
+        governing_load_case=governing.load_case,
+        axial_ratio=governing.axial_ratio,
+        bending_ratio=governing.bending_ratio,
+        shear_ratio=governing.shear_ratio,
+        deflection_ratio=governing.deflection_ratio,
+        combined_ratio=governing.ratio,
+        status=STATUS_OK if governing.ratio <= 1.0 and not result.messages else STATUS_NG,
+        demand=replace(demand, deflection=governing.deflection),
+        duration=governing.duration,
+        location=governing.location,
+        messages=result.messages,
+        standard=result,
+    )
+
+
+def _unchecked_element(e, member_class, load_cases, load_case_indices):
+    load_case = load_cases[0]
+    return WoodElementCheck(
+        element_id=e.id,
+        member_class=member_class.name,
+        kind=member_class.kind,
+        section=e.sec.name,
+        material=e.sec.mat.name,
+        governing_load_case=load_case,
+        axial_ratio=0.0,
+        bending_ratio=0.0,
+        shear_ratio=0.0,
+        deflection_ratio=None,
+        combined_ratio=0.0,
+        status=STATUS_WARN,
+        demand=_demand_for_load_case(e, load_case, load_case_indices[load_case]),
     )
 
 
@@ -276,25 +431,7 @@ def _deflection_ratio(e, deflection, project):
 
 
 def _element_deflection(e, clc):
-    ndisps = getattr(e, "ndisps", None)
-    if ndisps is None:
-        return None
-    ui = [float(ndisps[0, clc]), float(ndisps[1, clc]), float(ndisps[2, clc])]
-    uj = [float(ndisps[6, clc]), float(ndisps[7, clc]), float(ndisps[8, clc])]
-    du = [uj[i] - ui[i] for i in range(3)]
-    axis = _element_axis(e)
-    axial = sum(du[i] * axis[i] for i in range(3))
-    transverse_sq = max(0.0, sum(v * v for v in du) - axial * axial)
-    return math.sqrt(transverse_sq)
-
-
-def _element_axis(e):
-    length = max(getattr(e, "len", 0.0), DEFAULT_TOLERANCE)
-    return (
-        (e.n1.x - e.n0.x) / length,
-        (e.n1.y - e.n0.y) / length,
-        (e.n1.z - e.n0.z) / length,
-    )
+    return element_chord_deflection(e, clc)
 
 
 def _positive_or_inf(value):
@@ -322,15 +459,70 @@ def _build_tables(checks, wall_checks, project):
                 "max_ratio": max(
                     [c.combined_ratio for c in checks_by_class.get(member_class.name, [])] + [0.0]
                 ),
-                "status": "OK"
-                if max([c.combined_ratio for c in checks_by_class.get(member_class.name, [])] + [0.0]) <= 1.0
-                else "NG",
+                "status": _overall_status([c.status for c in checks_by_class.get(member_class.name, [])]),
             }
             for member_class in project.member_classes
             if member_class.kind in CHECKED_MEMBER_KINDS
         ),
         wall_checks=tuple(_wall_check_to_dict(c) for c in wall_checks),
+        standard_sections=tuple(_standard_section_to_dict(c) for c in checks if c.standard is not None),
+        standard_results=tuple(
+            _standard_result_to_dict(c, r) for c in checks if c.standard is not None for r in c.standard.results
+        ),
     )
+
+
+def _standard_section_to_dict(check):
+    p = check.standard.properties
+    return {
+        "element_id": check.element_id,
+        "member_class": check.member_class,
+        "kind": check.kind,
+        "section": check.section,
+        "material": check.material,
+        "area_e_100mm2": p.area * 1.0e4,
+        "z_y_e_1000mm3": p.section_modulus_y * 1.0e6,
+        "z_z_e_1000mm3": p.section_modulus_z * 1.0e6,
+        "radius_min_mm": min(p.radius_y, p.radius_z) * 1.0e3,
+        "lk_y_mm": p.buckling_length_y * 1.0e3,
+        "lk_z_mm": p.buckling_length_z * 1.0e3,
+        "slenderness": p.slenderness,
+        "eta": p.eta,
+        "ck": p.lateral_ck,
+        "cs": p.lateral_cs,
+        "cb": p.lateral_cb if p.lateral_cs is not None else None,
+        "le_mm": p.lateral_length * 1.0e3 if p.lateral_length is not None else None,
+        "messages": ", ".join(check.messages),
+    }
+
+
+def _standard_result_to_dict(check, r):
+    return {
+        "element_id": check.element_id,
+        "duration": wood_standard.DURATION_LABELS[r.duration],
+        "load_case": r.load_case,
+        "location": wood_standard.location_label(r.location),
+        "axial_kn": r.axial * 1.0e-3,
+        "moment_y_knm": r.moment_y * 1.0e-3,
+        "moment_z_knm": r.moment_z * 1.0e-3,
+        "shear_kn": r.shear * 1.0e-3,
+        "fc": r.allowable_compression / STRESS_UNIT,
+        "ft": r.allowable_tension / STRESS_UNIT,
+        "fb_y": r.allowable_bending_y / STRESS_UNIT,
+        "fb_z": r.allowable_bending_z / STRESS_UNIT,
+        "fs": r.allowable_shear / STRESS_UNIT,
+        "sigma_n": r.sigma_n / STRESS_UNIT,
+        "sigma_by": r.sigma_by / STRESS_UNIT,
+        "sigma_bz": r.sigma_bz / STRESS_UNIT,
+        "tau": r.tau / STRESS_UNIT,
+        "sigma_cv": r.sigma_cv / STRESS_UNIT,
+        "stress_ratio": r.combined_stress_ratio,
+        "shear_ratio": r.shear_ratio,
+        "bearing_ratio": r.bearing_ratio,
+        "deflection_mm": r.deflection * 1.0e3 if r.deflection is not None else None,
+        "deflection_ratio": r.deflection_ratio,
+        "ratio": r.ratio,
+    }
 
 
 def _check_to_dict(check):
@@ -347,6 +539,8 @@ def _check_to_dict(check):
         "deflection_ratio": check.deflection_ratio,
         "combined_ratio": check.combined_ratio,
         "status": check.status,
+        "duration": wood_standard.DURATION_LABELS.get(check.duration, ""),
+        "location": wood_standard.location_label(check.location),
         "demand": {
             "load_case": check.demand.load_case,
             "axial": check.demand.axial,

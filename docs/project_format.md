@@ -289,6 +289,70 @@ GUI (Advanced), **Wall quantity…** opens the report for the current model
 `data/sample_wall_quantity_2f.dat` + `data/sample_wall_quantity_2f.project.json` (synthetic two-story house
 with a single-story 下屋, a braced wall, a 腰壁・垂れ壁 and column materials).
 
+## 木造部材の検定 (`design_checks.wood`)
+
+`materials` を1件以上設定すると、許容応力度計算で検定します。未設定のときは従来の簡易法
+（`allowable_stresses` のみ、荷重継続期間・座屈は未考慮）で検定し、帳票と警告に簡易法である旨を出します。
+
+```json
+"design_checks": {
+  "wood": {
+    "enabled": true,
+    "load_cases": [11, 12, 13],
+    "load_case_durations": [
+      {"load_case": 11, "duration": "LONG_TERM"},
+      {"load_case": 12, "duration": "SHORT_TERM_SNOW"},
+      {"load_case": 13, "duration": "SHORT_TERM"}
+    ],
+    "materials": [
+      {
+        "name": "E120-F330",
+        "compression": 25.9, "tension": 22.4, "bending": 33.0, "shear": 3.0, "bearing": 6.0,
+        "bending_depth_factors": [
+          {"max_depth_mm": 150, "factor": 1.08},
+          {"max_depth_mm": 300, "factor": 1.0}
+        ]
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "beam",
+        "area_reduction_percent": 15, "section_modulus_reduction_percent": 15,
+        "shear_area_reduction_percent": 15, "inertia_reduction_percent": 15,
+        "buckling_factor_z": 0.5, "biaxial_bending": false,
+        "deflection_ratio_long_term": 500, "deflection_mm_long_term": 10
+      },
+      {"kind": "column", "biaxial_bending": false, "check_bearing": true}
+    ]
+  }
+}
+```
+
+- `materials[].name` は `.dat` の `MATE` 名と一致させます。基準強度の単位は N/mm² です。一致する材料がない部材は「未検定」(`WARN`) になります。
+- `bending_depth_factors` は、曲げの基準強度に乗じる寸法の係数です。深さが `max_depth_mm` 以下の最初の行を使います。表を超える深さには最後の行を使います。未設定なら 1.0 です。
+- `duration` は `LONG_TERM`(×1.1/3)、`LONG_TERM_SNOW`(×1.43/3)、`SHORT_TERM_SNOW`(×1.6/3)、`SHORT_TERM`(×2/3) のいずれかです。`load_case_durations`、`load_combinations[].duration` の順に探し、どちらにもない荷重ケースは長期として警告します。
+- `conditions` は `kind` または `member_class` のどちらか一方を指定します。`member_class` の指定が `kind` より優先します。
+
+| 条件 | 既定値 | 内容 |
+| --- | --- | --- |
+| `*_reduction_percent` | 0 | 断面積、断面係数、せん断用断面積、断面二次モーメントの低減率 |
+| `buckling_factor_y` / `_z` | 1.0 | 座屈長さ lk = 係数 × 部材長。梁の弱軸の値は横補剛間隔としても使う |
+| `lateral_buckling_coefficient` | 1.9 | 横座屈の有効長さ le = 係数 × 弱軸の lk |
+| `biaxial_bending` | true | true: 2軸の曲げを加算。false: 軸ごとに検定して大きい方を採用 |
+| `slenderness_limit` | 150 | 柱の細長比の制限値。超えると NG（0で判定しない） |
+| `check_bearing`, `bearing_area_loss_mm2` | false, 0 | 柱の軸圧縮によるめり込みの検定（`materials[].bearing` が必要） |
+| `deflection_ratio_*`, `deflection_mm_*` | 0 | 梁のたわみ制限 L/n と mm。長期、長期積雪、短期積雪ごとに指定。両方指定すると、どちらかを満たせば OK |
+
+算定式は次のとおりです。
+
+- 軸力: 圧縮は σ/(η·fc)、引張は σ/ft。η は λ≤30 で 1.0、λ≤100 で 1.3−0.01λ、それ以上で 3000/λ²。
+- 曲げ: 軸力の比に σb/fb を加算します。材端と中央で評価します。
+- せん断: τ = 1.5Q/As。
+- 横座屈（梁）: Cs = √(le·d/b²)、Ck = √(0.6E/fb長期)。Cs≤10 で Cb=1、Cs≤Ck で 1−(Cs/Ck)⁴/3、それ以上で 0.4E/(Cs²·fb長期)。Cs>50 は NG。
+- たわみ（梁）: 材端と中央の曲げモーメントから部材弦に対する中央たわみを求めます（せん断変形は含みません）。片持ちは先端の相対変位です。
+
+未対応: 燃えしろ、接合金物、床、矩形以外の断面。たわみは節点間の部材ごとの評価で、クリープは制限値（例: 1/500）で考慮します。
+
 ## Python API
 
 ```python

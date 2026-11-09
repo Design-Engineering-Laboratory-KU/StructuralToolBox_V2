@@ -437,25 +437,36 @@ def build_project_view(
     sections.append(load_section)
 
     wood = project.design_checks.wood
-    if wood.enabled or wood.load_cases or wood.deflection_limit_ratio:
+    if wood.enabled or wood.load_cases or wood.deflection_limit_ratio or wood.materials:
+        wood_tables = [{
+            "title": "許容応力度 (N/mm²)",
+            "columns": ["曲げ", "せん断", "圧縮", "引張"],
+            "rows": [[
+                _num(wood.allowable_stresses.bending),
+                _num(wood.allowable_stresses.shear),
+                _num(wood.allowable_stresses.compression),
+                _num(wood.allowable_stresses.tension),
+            ]],
+        }]
+        if wood.materials:
+            wood_tables = [{
+                "title": "基準強度 (N/mm²)",
+                "columns": ["材料", "Fc", "Ft", "Fb", "Fs", "Fcv"],
+                "rows": [
+                    [m.name, _num(m.compression), _num(m.tension), _num(m.bending), _num(m.shear), _num(m.bearing)]
+                    for m in wood.materials
+                ],
+            }]
         sections.append({
             "id": "design_checks",
             "title": "設計検討 (木造)",
             "rows": [
                 {"label": "有効", "value": "はい" if wood.enabled else "いいえ"},
+                {"label": "検定方式", "value": "許容応力度計算" if wood.materials else "簡易法"},
                 {"label": "荷重ケース", "value": ", ".join(str(lc) for lc in wood.load_cases) or "—"},
                 {"label": "たわみ限界 (L/×)", "value": _num(wood.deflection_limit_ratio) if wood.deflection_limit_ratio else "—"},
             ],
-            "tables": [{
-                "title": "許容応力度 (N/mm²)",
-                "columns": ["曲げ", "せん断", "圧縮", "引張"],
-                "rows": [[
-                    _num(wood.allowable_stresses.bending),
-                    _num(wood.allowable_stresses.shear),
-                    _num(wood.allowable_stresses.compression),
-                    _num(wood.allowable_stresses.tension),
-                ]],
-            }],
+            "tables": wood_tables,
         })
 
     r = project.report
