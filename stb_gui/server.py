@@ -90,7 +90,7 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
     )
     default_model = normalize_model_relpath(default_model)
     try:
-        from fastapi import FastAPI, HTTPException, Query, Body
+        from fastapi import FastAPI, HTTPException, Query, Body, Request
         from fastapi.responses import FileResponse, JSONResponse
     except ImportError:
         raise ImportError(
@@ -405,6 +405,67 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         except (ValueError, OSError) as ex:
             return HTMLResponse(error_page_html(str(ex)), status_code=400, headers=headers)
         return HTMLResponse(body, headers=headers)
+
+    def _require_local_origin(request: Request) -> None:
+        # The report endpoint writes files at user-given paths, so refuse calls
+        # from pages that are not served by this GUI (CORS is open for the API).
+        origin = request.headers.get("origin")
+        if not origin or origin == "null":
+            return
+        from urllib.parse import urlparse
+
+        host = (urlparse(origin).hostname or "").lower()
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            raise HTTPException(status_code=403, detail="Report generation is only allowed from the local GUI")
+
+    @app.get("/api/report/defaults")
+    def api_report_defaults(
+        path: str = Query("", description="Relative path to the open .dat (optional)"),
+    ):
+        from stb_gui.report_view import report_defaults_for_model
+
+        try:
+            data = report_defaults_for_model(path or None)
+        except ValueError:
+            data = report_defaults_for_model(None)
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/report/confirmation")
+    def api_report_confirmation(request: Request, body: dict = Body(...)):
+        """Same as ``stb report <input> -o <output>``; returns where it was written."""
+
+        _require_local_origin(request)
+        from stb_engine.errors import StbParseError, StbSolveError
+        from stb_gui.report_view import run_confirmation_report
+
+        try:
+            data = run_confirmation_report(
+                body.get("input"),
+                body.get("output"),
+                body.get("format") or None,
+            )
+        except StbParseError as ex:
+            raise HTTPException(status_code=400, detail="Parse error: " + str(ex))
+        except StbSolveError as ex:
+            raise HTTPException(status_code=400, detail="Analysis error: " + str(ex))
+        except (ValueError, IOError) as ex:
+            raise HTTPException(status_code=400, detail=str(ex))
+        return JSONResponse(data)
+
+    @app.get("/api/report/view")
+    def api_report_view(token: str = Query(...)):
+        from fastapi.responses import HTMLResponse, PlainTextResponse
+        from stb_gui.report_view import generated_report_file
+
+        out = generated_report_file(token)
+        if not out or not os.path.isfile(out):
+            raise HTTPException(status_code=404, detail="Report not found (generate it again)")
+        with open(out, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        headers = {"Cache-Control": "no-store"}
+        if out.lower().endswith(".md"):
+            return PlainTextResponse(text, headers=headers)
+        return HTMLResponse(text, headers=headers)
 
     @app.post("/api/loads/seismic/apply")
     def api_loads_seismic_apply(

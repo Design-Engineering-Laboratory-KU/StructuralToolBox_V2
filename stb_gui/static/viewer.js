@@ -190,6 +190,7 @@ const el = {
   btnLoads: document.getElementById("btnLoads"),
   btnPractice: document.getElementById("btnPractice"),
   btnWallQuantity: document.getElementById("btnWallQuantity"),
+  btnReport: document.getElementById("btnReport"),
   btnOutput: document.getElementById("btnOutput"),
   lcSelect: document.getElementById("lcSelect"),
   defFactor: document.getElementById("defFactor"),
@@ -8871,6 +8872,7 @@ const CHILD_WINDOW_NAMES = {
   loadsVerify: "stb_loads_verify",
   practiceVerify: "stb_practice_verify",
   wallQuantity: "stb_wall_quantity",
+  report: "stb_report_output",
   results: "stb_gui_results",
 };
 
@@ -10158,6 +10160,28 @@ function openWallQuantityReportWindow() {
   setStatus(path + " — wall quantity report opened");
 }
 
+function openReportWindow() {
+  // Works without an open model too: the project.json path is typed in the window.
+  const path = getCurrentModelPath() || "";
+  let url;
+  try {
+    url = guiApiUrl("/static/report.html" + (path ? "?path=" + encodeURIComponent(path) : ""), window);
+  } catch (ex) {
+    setStatus("Error: " + ex.message);
+    return;
+  }
+  const w = openNamedChildUrl(
+    "report",
+    url,
+    "width=900,height=720,scrollbars=yes,resizable=yes"
+  );
+  if (!w) {
+    setStatus("Popup blocked — allow popups for this site");
+    return;
+  }
+  setStatus((path ? path + " — " : "") + "report output opened");
+}
+
 window.openProjectWindow = openProjectWindow;
 window.reloadCurrentModel = () => loadSelectedModel(false, { keepCamera: true });
 window.refreshWindVisual = () => loadWindVisualForCurrentModel().then(function () {
@@ -10900,6 +10924,9 @@ if (el.btnPractice) {
 }
 if (el.btnWallQuantity) {
   el.btnWallQuantity.addEventListener("click", () => openWallQuantityReportWindow());
+}
+if (el.btnReport) {
+  el.btnReport.addEventListener("click", () => openReportWindow());
 }
 el.btnOutput.addEventListener("click", () => openResultsWindow());
 el.lcSelect.addEventListener("change", () => {

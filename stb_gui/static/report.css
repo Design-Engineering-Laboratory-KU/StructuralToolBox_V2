@@ -1,0 +1,77 @@
+.rp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 880px;
+  margin-bottom: 20px;
+}
+
+.rp-label {
+  margin-top: 10px;
+  font-weight: 600;
+  color: #d4d0dc;
+}
+
+.rp-row {
+  display: flex;
+  gap: 8px;
+}
+
+.rp-input,
+.rp-select {
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid #4a4a58;
+  border-radius: 4px;
+  background: #252530;
+  color: #e8e6ed;
+  font-family: "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+}
+
+.rp-input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+}
+
+.rp-select {
+  width: 200px;
+  font-family: inherit;
+}
+
+.rp-hint {
+  margin: 2px 0 0;
+  color: #a8a4b8;
+  font-size: 11px;
+}
+
+.rp-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rp-outpath {
+  font-family: "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  color: #c8c4d0;
+  word-break: break-all;
+}
+
+.rp-status-ok {
+  color: #8fd4a0;
+}
+
+.rp-status-error {
+  color: #ff9c9c;
+  white-space: pre-wrap;
+}
+
+.rp-warn-list {
+  margin: 0;
+  padding-left: 1.4rem;
+  color: #f0d8c0;
+  line-height: 1.5;
+}

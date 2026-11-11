@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#e1dee4">
+  <meta name="color-scheme" content="dark light">
+  <title>計算書出力</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/loads_verify.css">
+  <link rel="stylesheet" href="/static/report.css">
+</head>
+<body class="loads-verify-body">
+  <header class="loads-verify-toolbar">
+    <div class="loads-verify-toolbar-left">
+      <h1 class="loads-verify-title">計算書出力（stb report）</h1>
+      <span class="loads-verify-path">解析を実行して確認申請補助計算書を書き出します。</span>
+    </div>
+    <div class="loads-verify-toolbar-right">
+      <button type="button" id="btnRpRun" class="btn-primary">計算書を作成</button>
+    </div>
+  </header>
+
+  <main class="loads-verify-main">
+    <form id="rpForm" class="rp-form" autocomplete="off">
+      <label class="rp-label" for="rpInput">入力（.project.json または .dat のフルパス）</label>
+      <div class="rp-row">
+        <input type="text" id="rpInput" class="rp-input" spellcheck="false"
+               placeholder="C:\path\to\model.project.json">
+        <button type="button" id="btnRpCurrent" class="lv-apply-btn" title="表示中のモデルの project.json を入れる">表示中のモデル</button>
+      </div>
+      <p class="rp-hint">エクスプローラーでファイルを Shift+右クリック →「パスのコピー」で貼り付けられます。Structural Toolbox のフォルダの外（Dropbox など）でも構いません。</p>
+
+      <label class="rp-label" for="rpOutput">出力ファイル（.html または .md、空欄なら入力と同じフォルダの *_report.html）</label>
+      <input type="text" id="rpOutput" class="rp-input" spellcheck="false" placeholder="（自動）">
+
+      <label class="rp-label" for="rpFormat">形式</label>
+      <select id="rpFormat" class="rp-select">
+        <option value="">拡張子から判断</option>
+        <option value="html">HTML</option>
+        <option value="markdown">Markdown</option>
+      </select>
+    </form>
+
+    <section class="lv-section rp-result">
+      <p id="rpStatus" class="loads-verify-status"></p>
+      <p id="rpOpenRow" class="rp-open" hidden>
+        <button type="button" id="btnRpOpen" class="lv-apply-btn">計算書を開く</button>
+        <span id="rpOutPath" class="rp-outpath"></span>
+      </p>
+      <div id="rpWarnings" hidden>
+        <h2 class="lv-section-title">警告（<span id="rpWarnCount">0</span> 件）</h2>
+        <ul id="rpWarnList" class="rp-warn-list"></ul>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/report.js"></script>
+</body>
+</html>

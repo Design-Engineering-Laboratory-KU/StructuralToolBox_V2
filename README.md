@@ -93,6 +93,8 @@ stb version
 
 Open http://127.0.0.1:8765/ — drag to orbit, scroll to zoom. Main bar: model, **Solve**, **Results** (forces, LC, deformation), **Options** (load arrow / label sizes; settings persist).
 
+**Report…** (計算書…, advanced mode) runs the same thing as `stb report`: paste the full path of a `.project.json` (or a `.dat` with a sidecar) — it may be outside this folder, e.g. in Dropbox — and the report is written next to it as `<name>_report.html` (or to the path you enter, `.html` / `.md`), then opened in a new window. The last paths are remembered in the browser.
+
 Stop the server with **Ctrl+C**.
 
 ### Options

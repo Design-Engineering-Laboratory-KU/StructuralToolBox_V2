@@ -324,35 +324,16 @@ def cmd_loads_combinations(args):
 
 def cmd_report(args):
     _ensure_project_root_on_path()
-    from stb_engine import parse_input, format_results
     from stb_engine.errors import StbParseError, StbSolveError
-    from stb_project import apply_load_combinations_to_model, load_project_file, load_project_for_dat
-    from stb_reports import write_confirmation_draft
+    from stb_reports import generate_confirmation_report
 
     try:
-        input_path = os.path.abspath(args.input)
-        if input_path.lower().endswith(".json"):
-            project = load_project_file(input_path)
-            dat_path = project.dat_path
-            if not os.path.isabs(dat_path):
-                dat_path = os.path.join(os.path.dirname(input_path), dat_path)
-        else:
-            dat_path = input_path
-            project = load_project_for_dat(dat_path, required=True)
-
-        lines = _read_lines(dat_path)
-        mdl = parse_input(lines)
-        mdl.filepath = dat_path
-        apply_load_combinations_to_model(mdl, project)
-        _solve_with_stdout_control(mdl, args.quiet)
-        txt = format_results(mdl)
-        draft = write_confirmation_draft(
+        draft, project, _dat_path = generate_confirmation_report(
+            args.input,
             args.output,
-            mdl,
-            project,
             output_format=args.format,
-            analysis_text=txt,
             program_version=_stb_version(),
+            quiet=args.quiet,
         )
     except IOError as ex:
         _stderr(str(ex))
