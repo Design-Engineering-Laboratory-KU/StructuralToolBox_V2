@@ -211,8 +211,8 @@ class TestWoodRatedWall(unittest.TestCase):
         lines = [
             "MATE, 1, SUGI, 9500, 633, 5.0, 3.0e-06, 20",
             "NODE, 1, 0, 0, 0",
-            "NODE, 2, 1.82, 0, 0",
-            "NODE, 3, 1.82, 0, 2.73",
+            "NODE, 2, 0, 1.82, 0",
+            "NODE, 3, 0, 1.82, 2.73",
             "NODE, 4, 0, 0, 2.73",
             "CONS, 1, 1, 1, 1, 1, 1, 1",
             "CONS, 2, 1, 1, 1, 1, 1, 1",

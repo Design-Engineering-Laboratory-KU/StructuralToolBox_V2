@@ -1,5 +1,8 @@
 #Requires -Version 5.1
 param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('Simple', 'Full')]
+    [string]$Edition,
     [string]$ZipPath,
     [string]$SourceDir
 )
@@ -85,7 +88,7 @@ elseif ($ZipPath) {
     Prepare-PayloadFromZip -Path $ZipPath
 }
 else {
-    $zips = Get-ChildItem -LiteralPath $DistDir -Filter 'StructuralToolbox_Windows_*.zip' -ErrorAction SilentlyContinue |
+    $zips = Get-ChildItem -LiteralPath $DistDir -Filter "StructuralToolbox_Windows_${Edition}_*.zip" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending
     if (-not $zips) {
         throw "No ZIP found. Run installer\build_windows_zip.ps1 first, or pass -ZipPath."
@@ -96,6 +99,10 @@ else {
 }
 
 Test-PayloadLayout -Dir $PayloadDir
+& py -3 (Join-Path $InstallerDir 'editions.py') ($Edition.ToLowerInvariant()) --payload $PayloadDir --verify-only
+if ($LASTEXITCODE -ne 0) {
+    throw "The payload is not the $Edition edition: $PayloadDir"
+}
 
 $Iscc = Find-InnoSetupCompiler
 if (-not $Iscc) {
@@ -108,14 +115,15 @@ Write-Host ""
 Write-Host "Building installer with Inno Setup..."
 Write-Host "  Source: $PayloadDir"
 Write-Host "  Version: $AppVersion"
+Write-Host "  Edition: $Edition"
 Write-Host ""
 
-& $Iscc "/DStbSourceDir=$PayloadDir" "/DOutputDist=$DistDir" "/DBuildStamp=$BuildStamp" "/DMyAppVersion=$AppVersion" $IssFile
+& $Iscc "/DStbSourceDir=$PayloadDir" "/DOutputDist=$DistDir" "/DBuildStamp=$BuildStamp" "/DMyAppVersion=$AppVersion" "/DEdition=$Edition" $IssFile
 if ($LASTEXITCODE -ne 0) {
     throw "ISCC failed with exit code $LASTEXITCODE"
 }
 
-$outFile = Join-Path $DistDir "StructuralToolbox_Setup_${AppVersion}_$BuildStamp.exe"
+$outFile = Join-Path $DistDir "StructuralToolbox_${Edition}_Setup_${AppVersion}_$BuildStamp.exe"
 Write-Host ""
 Write-Host "Done: $outFile"
 if (Test-Path -LiteralPath $outFile) {

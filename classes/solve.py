@@ -801,15 +801,14 @@ class Solve:
             vals = np.stack([np.asarray(m.ekG, dtype=np.float64) for m in dmems])
             blocks.append((dofs, vals))
 
-        # Wood shear panels: rank-one 4x4 spring on one translational DOF.
+        # Wood shear panels: rank-one 12x12 spring on the corner translations.
         wshears = getattr(mdl, "wshears", [])
         if wshears:
-            dofs = np.empty((len(wshears), 4), dtype=np.int64)
-            vals = np.empty((len(wshears), 4, 4), dtype=np.float64)
+            dofs = np.empty((len(wshears), 12), dtype=np.int64)
+            vals = np.empty((len(wshears), 12, 12), dtype=np.float64)
             for k, w in enumerate(wshears):
-                dof = w.dof()
                 weights = np.asarray(w.stiffness_weights(), dtype=np.float64)
-                dofs[k] = [ndof * n.cid + dof for n in w.nodes()]
+                dofs[k] = [ndof * n.cid + d for n in w.nodes() for d in range(3)]
                 vals[k] = w.k * np.outer(weights, weights)
             blocks.append((dofs, vals))
 

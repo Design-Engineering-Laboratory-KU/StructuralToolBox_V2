@@ -7,6 +7,7 @@ On macOS the same command also produces a .dmg and a per-user .pkg.
 
 from __future__ import annotations
 
+import argparse
 import gzip
 import hashlib
 import os
@@ -21,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import editions  # noqa: E402
 import write_manifest  # noqa: E402
 INSTALLER = Path(__file__).resolve().parent
 MAC = INSTALLER / "mac"
@@ -221,11 +223,11 @@ def install_scripts(payload: Path) -> None:
     stage_docs.stage(payload, "macos", ROOT)
 
 
-def include_wheels(payload: Path) -> None:
+def include_wheels(payload: Path, edition: str) -> None:
     sys.path.insert(0, str(INSTALLER))
     import fetch_wheels
 
-    source = fetch_wheels.build("macos", fetch_wheels.python_version(INSTALLER / "PYTHON_EMBED_VERSION"))
+    source = fetch_wheels.build("macos", fetch_wheels.python_version(INSTALLER / "PYTHON_EMBED_VERSION"), edition)
     fetch_wheels.copy_into_payload(source, payload)
     count = len(list((payload / "wheels").glob("*.whl")))
     print("OK: bundled libraries ({0} wheels)".format(count))
@@ -630,24 +632,29 @@ echo "完成: $PKG"
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--edition", required=True, choices=editions.EDITIONS)
+    edition = parser.parse_args().edition
+
     version = read_text(INSTALLER / "PYTHON_EMBED_VERSION")
     release = read_text(INSTALLER / "PYTHON_MAC_RELEASE")
-    stamp = f"{PKG_VERSION}_{date.today().strftime('%Y%m%d')}"
+    stamp = f"{edition.capitalize()}_{PKG_VERSION}_{date.today().strftime('%Y%m%d')}"
     name = f"StructuralToolbox_Mac_Setup_{stamp}"
     stage = DIST / "_build" / name
     payload = stage / "payload"
     archive_path = DIST / f"{name}.tar.gz"
 
     print(f"Building macOS installer -> {archive_path}")
-    print(f"  Structural Toolbox {PKG_VERSION}")
+    print(f"  Structural Toolbox {PKG_VERSION} ({edition})")
     print(f"  Python {version} (standalone release {release})")
     pythons = fetch_pythons(version, release)
 
     if stage.exists():
         shutil.rmtree(stage)
     copy_source(payload)
+    editions.apply(payload, edition)
     install_scripts(payload)
-    include_wheels(payload)
+    include_wheels(payload, edition)
     include_grasshopper(payload)
     verify_payload(payload)
     # Last step: lists every shipped file so later upgrades keep only user models.

@@ -6,8 +6,8 @@ Windows 11 / Mac 向けの配布物を作るためのメモです。
 
 | 方式 | 受け取るもの | 体感 |
 | --- | --- | --- |
-| **推奨: インストーラ** | `StructuralToolbox_Setup_YYYYMMDD.exe` | 通常の Windows ソフトと同様 |
-| ZIP + .bat | `StructuralToolbox_Windows_YYYYMMDD.zip` | 解凍 → `.bat` 実行 |
+| **推奨: インストーラ** | `StructuralToolbox_Full_Setup_YYYYMMDD.exe` | 通常の Windows ソフトと同様 |
+| ZIP + .bat | `StructuralToolbox_Windows_Full_YYYYMMDD.zip` | 解凍 → `.bat` 実行 |
 
 中身は同じ（同梱 Python + `.venv` + `stb gui` + Grasshopper `.gha`）。
 
@@ -23,27 +23,27 @@ Windows 11 / Mac 向けの配布物を作るためのメモです。
 ### 1. ZIP を作る（Windows）
 
 ```powershell
-.\installer\build_windows_zip.ps1
+.\installer\build_windows_zip.ps1 -Edition Full
 ```
 
-出力: `installer/dist/StructuralToolbox_Windows_YYYYMMDD.zip`
+出力: `installer/dist/StructuralToolbox_Windows_Full_YYYYMMDD.zip`
 
 ### 2. インストーラを作る（Windows）
 
 ZIP だけ作る:
 
 ```powershell
-.\installer\build_windows_zip.ps1
+.\installer\build_windows_zip.ps1 -Edition Full
 ```
 
 インストーラ（要 [Inno Setup 6](https://jrsoftware.org/isdl.php)）:
 
 ```powershell
-.\installer\build_windows_installer.ps1
+.\installer\build_windows_installer.ps1 -Edition Full
 # または
-.\installer\build_windows_installer.ps1 -SourceDir installer\dist\_build\StructuralToolbox_Windows_YYYYMMDD
+.\installer\build_windows_installer.ps1 -Edition Full -SourceDir installer\dist\_build\StructuralToolbox_Windows_Full_YYYYMMDD
 ```
-出力: `installer/dist/StructuralToolbox_Setup_YYYYMMDD.exe`
+出力: `installer/dist/StructuralToolbox_Full_Setup_YYYYMMDD.exe`
 
 詳細: [docs/インストーラ作成.md](../docs/インストーラ作成.md)
 
@@ -70,12 +70,12 @@ ZIP だけ作る:
 ### ZIP を作る
 
 ```powershell
-.\installer\build_windows_zip.ps1
+.\installer\build_windows_zip.ps1 -Edition Full
 ```
 
 - **ビルド時のみインターネット必須**（Python と wheels を取得）
 - キャッシュ: `installer/dist/_cache/`
-- 出力: `installer/dist/StructuralToolbox_Windows_YYYYMMDD.zip`
+- 出力: `installer/dist/StructuralToolbox_Windows_Full_YYYYMMDD.zip`
 
 ### 受け取った PC での流れ（ZIP）
 
@@ -105,10 +105,10 @@ ZIP だけ作る:
 Windows 用 ZIP / Setup.exe は使えません。Mac 用は別のインストーラです。
 
 ```powershell
-.\installer\build_mac.ps1
+.\installer\build_mac.ps1 -Edition Full
 ```
 
-出力: `installer/dist/StructuralToolbox_Mac_Setup_YYYYMMDD.tar.gz`
+出力: `installer/dist/StructuralToolbox_Mac_Setup_Full_YYYYMMDD.tar.gz`
 
 Windows でビルドすると `installer/dist/StructuralToolbox_Mac_make_pkg_YYYYMMDD.sh` も出力されます。
 これと tar.gz を Mac の同じフォルダに置いて `bash StructuralToolbox_Mac_make_pkg_YYYYMMDD.sh`
@@ -117,7 +117,7 @@ Windows でビルドすると `installer/dist/StructuralToolbox_Mac_make_pkg_YYY
 リポジトリ全体を Mac に置いた場合は、同じスクリプトを Mac 上で実行しても `.dmg` と `.pkg` が作られます。
 
 ```bash
-./installer/build_mac_installer.sh
+./installer/build_mac_installer.sh --edition full
 ```
 
 インストール手順: [docs/インストール.md](../docs/インストール.md)  

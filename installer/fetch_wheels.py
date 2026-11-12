@@ -26,6 +26,8 @@ RUNTIME = [
     "uvicorn[standard]",
     "httpx",
 ]
+# Used only by the calculation book, which the Simple edition omits.
+FULL_ONLY = ["reportlab", "pypdf"]
 # Needed to build structural-toolbox itself, and to create the venv on the
 # Windows embeddable Python, which has no venv module.
 TOOLING = ["pip", "setuptools", "wheel"]
@@ -118,7 +120,7 @@ def download_pure(dest: Path, requirements: list[str], py_version: str) -> None:
         raise SystemExit("pip download failed for pure wheels:\n  " + "\n  ".join(tail))
 
 
-def build(target: str, py_version: str) -> Path:
+def build(target: str, py_version: str, edition: str) -> Path:
     dest = CACHE / target
     # pip download never removes superseded versions, so start empty to bundle
     # only the versions resolved by this build.
@@ -126,7 +128,7 @@ def build(target: str, py_version: str) -> Path:
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
 
-    requirements = list(RUNTIME)
+    requirements = list(RUNTIME) + (FULL_ONLY if edition == "full" else [])
     if target == "windows":
         requirements += WINDOWS_TOOLING
     elif target == "macos":
@@ -161,11 +163,12 @@ def copy_into_payload(source: Path, payload: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", choices=sorted(PLATFORM_GROUPS))
+    parser.add_argument("--edition", required=True, choices=("simple", "full"))
     parser.add_argument("--payload", help="Copy the wheels into this payload folder")
     args = parser.parse_args()
 
     py_version = python_version(INSTALLER / "PYTHON_EMBED_VERSION")
-    dest = build(args.target, py_version)
+    dest = build(args.target, py_version, args.edition)
     if args.payload:
         copy_into_payload(dest, Path(args.payload))
         print("  copied into " + str(Path(args.payload) / "wheels"))

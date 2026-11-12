@@ -20,12 +20,19 @@ gui = [
     "uvicorn[standard]",
     "httpx",
 ]
+report = [
+    "reportlab",
+    "pypdf",
+]
 
 [project.scripts]
 stb = "stb_cli.main:main"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
+
+[tool.setuptools.package-data]
+stb_reports = ["fonts/*"]
 
 [tool.setuptools.packages.find]
 where = ["."]

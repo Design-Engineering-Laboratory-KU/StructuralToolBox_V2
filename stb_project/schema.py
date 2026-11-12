@@ -51,6 +51,8 @@ DEFAULT_WIND_DIAPHRAGM_INPUT_MODE = "DIAPHRAGM_DIRECT"
 DEFAULT_WIND_SURFACE_ROLE = "WINDWARD"
 ALLOWED_LOAD_COMBINATION_DURATIONS = ("LONG_TERM", "SHORT_TERM", "LONG_TERM_SNOW", "SHORT_TERM_SNOW")
 ALLOWED_WOOD_CONDITION_KINDS = ("beam", "column", "brace")
+ALLOWED_WOOD_JOINT_INTERACTIONS = ("linear", "none")
+DEFAULT_WOOD_JOINT_INTERACTION = "linear"
 DEFAULT_LOAD_COMBINATION_DURATION = "LONG_TERM"
 
 ROUGHNESS_ZB = {"I": 5.0, "II": 5.0, "III": 5.0, "IV": 10.0}
@@ -342,6 +344,10 @@ PROJECT_JSON_SCHEMA = {
                                 },
                             },
                         },
+                        "joint_interaction": {"enum": list(ALLOWED_WOOD_JOINT_INTERACTIONS)},
+                        "floor_multipliers": {"type": "array", "items": {"type": "object"}},
+                        "joint_types": {"type": "array", "items": {"type": "object"}},
+                        "joint_assignments": {"type": "array", "items": {"type": "object"}},
                     },
                 },
             },
@@ -356,6 +362,7 @@ PROJECT_JSON_SCHEMA = {
                 "format": {"enum": list(ALLOWED_REPORT_FORMATS)},
                 "include_manual_items": {"type": "boolean"},
                 "include_warnings": {"type": "boolean"},
+                "attachments": {"type": "array", "items": {"type": "string"}},
             },
         },
     },
@@ -416,6 +423,7 @@ class ReportSettings:
     format: str = "markdown"
     include_manual_items: bool = True
     include_warnings: bool = True
+    attachments: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -479,6 +487,43 @@ class WoodMemberCondition:
 
 
 @dataclass(frozen=True)
+class WoodJointType:
+    """Allowable forces of joint hardware (kN, kN*m); weak-axis values default to strong."""
+
+    name: str
+    compression_long: float = 0.0
+    compression_short: float = 0.0
+    tension_long: float = 0.0
+    tension_short: float = 0.0
+    shear_long: float = 0.0
+    shear_short: float = 0.0
+    moment_long: float = 0.0
+    moment_short: float = 0.0
+    shear_weak_long: Optional[float] = None
+    shear_weak_short: Optional[float] = None
+    moment_weak_long: Optional[float] = None
+    moment_weak_short: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class WoodJointAssignment:
+    """Hardware per member end; i and j for beams, top and bottom for columns."""
+
+    member_class: str = ""
+    element_ids: Tuple[int, ...] = ()
+    i: str = ""
+    j: str = ""
+    top: str = ""
+    bottom: str = ""
+
+
+@dataclass(frozen=True)
+class WoodFloorMultiplier:
+    diaphragm: int
+    multiplier: float
+
+
+@dataclass(frozen=True)
 class WoodCheckSettings:
     enabled: bool = False
     load_cases: Tuple[int, ...] = ()
@@ -487,6 +532,10 @@ class WoodCheckSettings:
     load_case_durations: Tuple[WoodLoadCaseDuration, ...] = ()
     materials: Tuple[WoodMaterialStrength, ...] = ()
     conditions: Tuple[WoodMemberCondition, ...] = ()
+    joint_types: Tuple[WoodJointType, ...] = ()
+    joint_assignments: Tuple[WoodJointAssignment, ...] = ()
+    joint_interaction: str = DEFAULT_WOOD_JOINT_INTERACTION
+    floor_multipliers: Tuple[WoodFloorMultiplier, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -916,11 +965,15 @@ class ProjectDefinition:
     report: ReportSettings
     source_path: Optional[str] = None
     wall_quantity: "WallQuantitySettings" = None  # type: ignore[assignment]
+    foundation: "FoundationSettings" = None  # type: ignore[assignment]
 
     def __post_init__(self):
         if self.wall_quantity is None:
             from stb_project.wall_quantity_settings import WallQuantitySettings
             object.__setattr__(self, "wall_quantity", WallQuantitySettings())
+        if self.foundation is None:
+            from stb_project.foundation_settings import FoundationSettings
+            object.__setattr__(self, "foundation", FoundationSettings())
 
     def to_dict(self):
         out = {
@@ -996,6 +1049,11 @@ class ProjectDefinition:
                 "include_warnings": self.report.include_warnings,
             },
         }
+        if self.report.attachments:
+            out["report"]["attachments"] = list(self.report.attachments)
+        if not self.foundation.is_default:
+            from stb_project.foundation_settings import foundation_settings_to_dict
+            out["foundation"] = foundation_settings_to_dict(self.foundation)
         if not self.wall_quantity.is_default:
             from stb_project.wall_quantity_settings import wall_quantity_settings_to_dict
             out["wall_quantity"] = wall_quantity_settings_to_dict(self.wall_quantity)
@@ -1107,7 +1165,7 @@ def validate_project_dict(raw, source_path=None):
         raw,
         [
             "schema", "model", "building", "grids", "stories", "member_classes",
-            "design_checks", "load_conditions", "report", "wall_quantity",
+            "design_checks", "load_conditions", "report", "wall_quantity", "foundation",
         ],
         "project",
     )
@@ -1130,6 +1188,8 @@ def validate_project_dict(raw, source_path=None):
     report = _parse_report(_required(raw, "report", "project"))
     from stb_project.wall_quantity_settings import parse_wall_quantity_settings
     wall_quantity = parse_wall_quantity_settings(raw.get("wall_quantity"))
+    from stb_project.foundation_settings import parse_foundation_settings
+    foundation = parse_foundation_settings(raw.get("foundation"))
 
     return ProjectDefinition(
         schema=schema,
@@ -1143,6 +1203,7 @@ def validate_project_dict(raw, source_path=None):
         report=report,
         source_path=source_path,
         wall_quantity=wall_quantity,
+        foundation=foundation,
     )
 
 
@@ -1248,7 +1309,7 @@ def _parse_report(raw):
     _require_type(raw, dict, "project.report")
     _reject_unknown(
         raw,
-        ["title", "mode", "language", "format", "include_manual_items", "include_warnings"],
+        ["title", "mode", "language", "format", "include_manual_items", "include_warnings", "attachments"],
         "project.report",
     )
     mode = _optional_string(raw, "mode", "project.report", default="practice")
@@ -1264,6 +1325,7 @@ def _parse_report(raw):
         format=output_format,
         include_manual_items=_optional_bool(raw, "include_manual_items", "project.report", default=True),
         include_warnings=_optional_bool(raw, "include_warnings", "project.report", default=True),
+        attachments=_parse_string_list(raw.get("attachments", []), "project.report.attachments"),
     )
 
 
@@ -1927,6 +1989,16 @@ def _wood_settings_to_dict(wood):
         ]
     if wood.conditions:
         out["conditions"] = [asdict(c) for c in wood.conditions]
+    if wood.joint_types:
+        out["joint_types"] = [{k: v for k, v in asdict(j).items() if v is not None} for j in wood.joint_types]
+    if wood.joint_assignments:
+        out["joint_assignments"] = [
+            {**asdict(a), "element_ids": list(a.element_ids)} for a in wood.joint_assignments
+        ]
+    if wood.floor_multipliers:
+        out["floor_multipliers"] = [asdict(f) for f in wood.floor_multipliers]
+    if wood.joint_interaction != DEFAULT_WOOD_JOINT_INTERACTION:
+        out["joint_interaction"] = wood.joint_interaction
     return out
 
 
@@ -1942,10 +2014,20 @@ def _parse_wood_check_settings(raw):
             "load_case_durations",
             "materials",
             "conditions",
+            "joint_types",
+            "joint_assignments",
+            "joint_interaction",
+            "floor_multipliers",
         ],
         "project.design_checks.wood",
     )
     allowable = _parse_wood_allowable_stresses(raw.get("allowable_stresses", {}))
+    joint_types = _parse_wood_joint_types(raw.get("joint_types", []))
+    joint_interaction = _optional_string(
+        raw, "joint_interaction", "project.design_checks.wood", default=DEFAULT_WOOD_JOINT_INTERACTION
+    )
+    if joint_interaction not in ALLOWED_WOOD_JOINT_INTERACTIONS:
+        raise ProjectSchemaError("project.design_checks.wood.joint_interaction is not supported: " + joint_interaction)
     return WoodCheckSettings(
         enabled=_optional_bool(raw, "enabled", "project.design_checks.wood", default=False),
         load_cases=tuple(_parse_int_list(raw.get("load_cases", []), "project.design_checks.wood.load_cases")),
@@ -1959,6 +2041,10 @@ def _parse_wood_check_settings(raw):
         load_case_durations=_parse_wood_load_case_durations(raw.get("load_case_durations", [])),
         materials=_parse_wood_materials(raw.get("materials", [])),
         conditions=_parse_wood_conditions(raw.get("conditions", [])),
+        joint_types=joint_types,
+        joint_assignments=_parse_wood_joint_assignments(raw.get("joint_assignments", []), joint_types),
+        joint_interaction=joint_interaction,
+        floor_multipliers=_parse_wood_floor_multipliers(raw.get("floor_multipliers", [])),
     )
 
 
@@ -2104,6 +2190,81 @@ def _parse_wood_conditions(raw):
     return tuple(out)
 
 
+_WOOD_JOINT_FORCE_KEYS = (
+    "compression_long", "compression_short", "tension_long", "tension_short",
+    "shear_long", "shear_short", "moment_long", "moment_short",
+)
+_WOOD_JOINT_WEAK_KEYS = ("shear_weak_long", "shear_weak_short", "moment_weak_long", "moment_weak_short")
+
+
+def _parse_wood_floor_multipliers(raw):
+    path = "project.design_checks.wood.floor_multipliers"
+    _require_type(raw, list, path)
+    out = []
+    for idx, item in enumerate(raw):
+        item_path = path + "[" + str(idx) + "]"
+        _require_type(item, dict, item_path)
+        _reject_unknown(item, ["diaphragm", "multiplier"], item_path)
+        diaphragm = item.get("diaphragm")
+        if type(diaphragm) is not int:
+            raise ProjectSchemaError(item_path + ".diaphragm must be an integer")
+        multiplier = _optional_number(item, "multiplier", item_path, default=0.0)
+        if multiplier <= 0.0:
+            raise ProjectSchemaError(item_path + ".multiplier must be positive")
+        out.append(WoodFloorMultiplier(diaphragm=diaphragm, multiplier=multiplier))
+    return tuple(out)
+
+
+def _parse_wood_joint_types(raw):
+    path = "project.design_checks.wood.joint_types"
+    _require_type(raw, list, path)
+    out = []
+    names = set()
+    for idx, item in enumerate(raw):
+        item_path = path + "[" + str(idx) + "]"
+        _require_type(item, dict, item_path)
+        _reject_unknown(item, ["name"] + list(_WOOD_JOINT_FORCE_KEYS) + list(_WOOD_JOINT_WEAK_KEYS), item_path)
+        name = _required_string(item, "name", item_path).strip()
+        if not name or name in names:
+            raise ProjectSchemaError(item_path + ".name must be unique and not empty")
+        names.add(name)
+        values = {}
+        for key in _WOOD_JOINT_FORCE_KEYS:
+            values[key] = _optional_number(item, key, item_path, default=0.0)
+        for key in _WOOD_JOINT_WEAK_KEYS:
+            if key in item:
+                values[key] = _optional_number(item, key, item_path, default=0.0)
+        if any(v < 0.0 for v in values.values()):
+            raise ProjectSchemaError(item_path + " allowable forces must not be negative")
+        out.append(WoodJointType(name=name, **values))
+    return tuple(out)
+
+
+def _parse_wood_joint_assignments(raw, joint_types):
+    path = "project.design_checks.wood.joint_assignments"
+    _require_type(raw, list, path)
+    known = {j.name for j in joint_types}
+    out = []
+    for idx, item in enumerate(raw):
+        item_path = path + "[" + str(idx) + "]"
+        _require_type(item, dict, item_path)
+        _reject_unknown(item, ["member_class", "element_ids", "i", "j", "top", "bottom"], item_path)
+        member_class = str(item.get("member_class", "") or "").strip()
+        element_ids = tuple(_parse_int_list(item.get("element_ids", []), item_path + ".element_ids"))
+        if bool(member_class) == bool(element_ids):
+            raise ProjectSchemaError(item_path + " requires exactly one of member_class or element_ids")
+        ends = {}
+        for key in ("i", "j", "top", "bottom"):
+            value = str(item.get(key, "") or "").strip()
+            if value and value not in known:
+                raise ProjectSchemaError(item_path + "." + key + " refers to an unknown joint type: " + value)
+            ends[key] = value
+        if not any(ends.values()):
+            raise ProjectSchemaError(item_path + " requires at least one of i, j, top or bottom")
+        out.append(WoodJointAssignment(member_class=member_class, element_ids=element_ids, **ends))
+    return tuple(out)
+
+
 def _parse_wood_allowable_stresses(raw):
     _require_type(raw, dict, "project.design_checks.wood.allowable_stresses")
     _reject_unknown(
@@ -2117,6 +2278,16 @@ def _parse_wood_allowable_stresses(raw):
         compression=_optional_number(raw, "compression", "project.design_checks.wood.allowable_stresses", default=0.0),
         tension=_optional_number(raw, "tension", "project.design_checks.wood.allowable_stresses", default=0.0),
     )
+
+
+def _parse_string_list(raw, path):
+    _require_type(raw, list, path)
+    values = []
+    for idx, item in enumerate(raw):
+        if not isinstance(item, str) or not item.strip():
+            raise ProjectSchemaError(path + "[" + str(idx) + "] must be a non-empty string")
+        values.append(item.strip())
+    return tuple(values)
 
 
 def _parse_int_list(raw, path):
@@ -2196,3 +2367,5 @@ def _reject_unknown(raw, allowed, path):
 from stb_project.wall_quantity_settings import WALL_QUANTITY_JSON_SCHEMA as _WALL_QUANTITY_JSON_SCHEMA  # noqa: E402
 
 PROJECT_JSON_SCHEMA["properties"]["wall_quantity"] = _WALL_QUANTITY_JSON_SCHEMA
+from stb_project.foundation_settings import FOUNDATION_JSON_SCHEMA as _FOUNDATION_JSON_SCHEMA  # noqa: E402
+PROJECT_JSON_SCHEMA["properties"]["foundation"] = _FOUNDATION_JSON_SCHEMA
