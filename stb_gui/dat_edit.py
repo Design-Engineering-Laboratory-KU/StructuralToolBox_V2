@@ -103,7 +103,7 @@ def delete_nodes(text: str, node_ids: list[int]) -> tuple[str, list[str]]:
 
     lines = text.splitlines()
     elem_targets = _elements_touching_nodes(lines, targets)
-    elem_remove_tags = {"ELEM", "EJNT", "ELOD"}
+    elem_remove_tags = {"ELEM", "EJNT", "ELOD", "EPLD"}
 
     out: list[str] = []
     removed_nodes = 0
@@ -158,7 +158,7 @@ def delete_elements(text: str, element_ids: list[int]) -> tuple[str, list[str]]:
     targets = {int(e) for e in element_ids}
     if not targets:
         raise ValueError("element_ids is empty")
-    removed_tags = {"ELEM", "EJNT", "ELOD"}
+    removed_tags = {"ELEM", "EJNT", "ELOD", "EPLD"}
     out: list[str] = []
     removed = 0
     for line in text.splitlines():

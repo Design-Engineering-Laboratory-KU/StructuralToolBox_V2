@@ -1,5 +1,7 @@
 ; Structural Toolbox - Windows installer (Inno Setup 6)
-; Shortcuts point to Start Structural Toolbox.bat (always present).
+; Shortcuts point to Start Structural Toolbox.bat (always present). It starts the
+; GUI with .venv\Scripts\pythonw.exe and exits at once, so no console stays open;
+; runminimized keeps that brief console off screen.
 ; stb.exe is created later by Install_once.bat in [Run].
 ; Install_once.bat also copies grasshopper\StbGrasshopper.gha to %APPDATA%\Grasshopper\Libraries.
 
@@ -67,9 +69,9 @@ Source: "{#StbSourceDir}\install_manifest.txt"; Flags: dontcopy
 Source: "{#StbSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppLauncher}"; WorkingDir: "{app}"; Comment: "3D 構造解析（ブラウザで開きます）"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppLauncher}"; WorkingDir: "{app}"; Comment: "3D 構造解析（ブラウザで開きます）"; Flags: runminimized
 Name: "{group}\{#MyAppName} (debug)"; Filename: "{app}\Start Structural Toolbox (debug).bat"; WorkingDir: "{app}"; Comment: "ログ付き・コンソールを残す"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppLauncher}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppLauncher}"; WorkingDir: "{app}"; Tasks: desktopicon; Flags: runminimized
 Name: "{group}\はじめ方"; Filename: "{app}\はじめ方_インストーラ版.md"; Comment: "使い方（テキスト）"
 Name: "{group}\初回セットアップを再実行"; Filename: "{app}\Install_once.bat"; Comment: "ライブラリの再インストール"
 Name: "{group}\{#MyAppName} をアンインストール"; Filename: "{uninstallexe}"; Comment: "このアプリを削除"

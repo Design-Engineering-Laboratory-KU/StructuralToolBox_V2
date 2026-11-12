@@ -109,6 +109,10 @@ ELOD_FMTS = [">6", ">4", ">4", ">8", ">8", ">8", ">8", ">8", ">8", ">6", ">6"]
 ELOD_NAMES = ["ELEM", "LC", "EG", "WXi", "WYi", "WZi", "WXj", "WYj", "WZj", "T0", "T1"]
 ELOD_UNITS = ["", "", "", "kN/m", "kN/m", "kN/m", "kN/m", "kN/m", "kN/m", "-", "-"]
 
+EPLD_FMTS = [">6", ">4", ">4", ">8", ">8", ">8", ">6"]
+EPLD_NAMES = ["ELEM", "LC", "EG", "PX", "PY", "PZ", "T"]
+EPLD_UNITS = ["", "", "", "kN", "kN", "kN", "-"]
+
 ALOD_FMTS = [">6", ">8", ">8", ">8", ">6", ">6", ">6", ">6"]
 ALOD_NAMES = ["LC", "PX", "PY", "PZ", "E1", "E2", "E3", "E4"]
 ALOD_UNITS = ["", "kN/m2", "kN/m2", "kN/m2", "", "", "", ""]
@@ -262,6 +266,13 @@ SECTION_HEADERS: dict[str, list[str]] = {
         unit_line("ELOD", ELOD_FMTS, ELOD_UNITS),
         *_notes("#   EG: 0=element local axes  1=global axes"),
     ],
+    "EPLD": [
+        "# --- ELEMENT POINT LOAD(EPLD) ---",
+        header_line("EPLD", EPLD_FMTS, EPLD_NAMES),
+        unit_line("EPLD", EPLD_FMTS, EPLD_UNITS),
+        *_notes("#   EG: 0=element local axes  1=global axes",
+                "#   T: position along the member from node I (0 to 1)"),
+    ],
     "ALOD": [
         "# --- AREA LOAD(ALOD) ---",
         header_line("ALOD", ALOD_FMTS, ALOD_NAMES),
@@ -309,6 +320,7 @@ def example_line(key: str) -> str:
         "LCMB": record_line("LCMB", [">6", ">10", ">6", ">6", ">6", ">6"], [2, "EX(+)", 2.0, 0, 1.0, 1]),
         "PLOD": record_line("PLOD", PLOD_FMTS, [1, 0, 0.0, 0.0, -5.0, 0.0, 0.0, 0.0]),
         "ELOD": record_line("ELOD", ELOD_FMTS, [0, 0, 0, 0.0, 0.0, -10.0, 0.0, 0.0, -10.0]),
+        "EPLD": record_line("EPLD", EPLD_FMTS, [0, 0, 1, 0.0, 0.0, -10.0, 0.5]),
         "ALOD": record_line("ALOD", ALOD_FMTS, [0, 0.0, 0.0, -5.0, 0, 1, 2, 3]),
         "GLOD": record_line("GLOD", GLOD_FMTS, [0, 0.0, 0.0, -9.80665]),
         "AXIS": record_line("AXIS", AXIS_FMTS, [0, "A1", 0, 0, 0]),
@@ -332,6 +344,7 @@ RECORD_FMTS: dict[str, list[str]] = {
     "LNME": LNME_FMTS,
     "PLOD": PLOD_FMTS,
     "ELOD": ELOD_FMTS,
+    "EPLD": EPLD_FMTS,
     "ALOD": ALOD_FMTS,
     "GLOD": GLOD_FMTS,
     "AXIS": AXIS_FMTS,
@@ -428,6 +441,7 @@ NAME_ROWS: dict[str, list[str]] = {
     "LNME": LNME_NAMES,
     "PLOD": PLOD_NAMES,
     "ELOD": ELOD_NAMES,
+    "EPLD": EPLD_NAMES,
     "ALOD": ALOD_NAMES,
     "GLOD": GLOD_NAMES,
     "AXIS": AXIS_NAMES,
@@ -446,6 +460,7 @@ UNIT_ROWS: dict[str, list[str]] = {
     "EJNT": EJNT_UNITS,
     "PLOD": PLOD_UNITS,
     "ELOD": ELOD_UNITS,
+    "EPLD": EPLD_UNITS,
     "ALOD": ALOD_UNITS,
     "GLOD": GLOD_UNITS,
     "DLOD": DLOD_AREA_UNITS,
@@ -538,7 +553,7 @@ def write_dat_text(path: str, text: str) -> None:
 
 NEW_MODEL_ORDER_ADVANCED = [
     "MATE", "DMAT", "SECT", "NODE", "ELEM", "DIAP", "DREG", "DOPN", "DMEM", "DCON",
-    "DLOD", "WWLL", "EJNT", "CONS", "LNME", "LCMB", "PLOD", "ELOD", "ALOD", "GLOD",
+    "DLOD", "WWLL", "EJNT", "CONS", "LNME", "LCMB", "PLOD", "ELOD", "EPLD", "ALOD", "GLOD",
     "AXIS", "PLOT",
 ]
 

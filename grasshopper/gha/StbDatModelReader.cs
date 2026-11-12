@@ -22,6 +22,7 @@ namespace StbGrasshopper
             var supportRecords = new List<SupportRecord>();
             var pointLoadRecords = new List<PointLoadRecord>();
             var lineLoadRecords = new List<LineLoadRecord>();
+            var elementPointRecords = new List<LineLoadRecord>();
             var areaLoadRecords = new List<AreaLoadRecord>();
             var jointRecords = new Dictionary<int, double?[]>();
             var typedLoads = new List<StbLoadModel>();
@@ -126,6 +127,25 @@ namespace StbGrasshopper
                             new Vector3d(Number(parts, 7), Number(parts, 8), Number(parts, 9)),
                             t0,
                             t1));
+                        break;
+                    case "EPLD":
+                        var pointElementId = Integer(parts, 1);
+                        var t = OptionalNumber(parts, 7);
+                        if (!t.HasValue || t.Value < 0.0 || t.Value > 1.0)
+                        {
+                            throw new FormatException(
+                                "EPLD on element " + pointElementId + " needs T within 0 to 1.");
+                        }
+
+                        var pointForce = new Vector3d(Number(parts, 4), Number(parts, 5), Number(parts, 6));
+                        elementPointRecords.Add(new LineLoadRecord(
+                            pointElementId,
+                            Integer(parts, 2),
+                            Integer(parts, 3) != 0,
+                            pointForce,
+                            pointForce,
+                            t.Value,
+                            t.Value));
                         break;
                     case "ALOD":
                         var boundaryIds = new List<int>();
@@ -260,6 +280,23 @@ namespace StbGrasshopper
                         LoadAtJ = record.LoadAtJ,
                         T0 = record.T0,
                         T1 = record.T1,
+                    });
+                }
+            }
+
+            foreach (var record in elementPointRecords)
+            {
+                if (elementsById.TryGetValue(record.ElementId, out var element))
+                {
+                    model.Loads.Add(new StbLoadModel
+                    {
+                        Kind = StbLoadKind.ElementPoint,
+                        ElementLine = element.Line,
+                        LoadCase = record.LoadCase,
+                        IsGlobal = record.IsGlobal,
+                        Force = record.LoadAtI,
+                        T0 = record.T0,
+                        T1 = record.T0,
                     });
                 }
             }

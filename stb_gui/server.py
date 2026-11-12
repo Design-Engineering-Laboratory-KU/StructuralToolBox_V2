@@ -36,6 +36,11 @@ _GUI_WATCHDOG_STARTED = False
 _GUI_HEARTBEAT_INTERVAL = 4.0
 # Background browser tabs throttle timers; keep a generous margin when enabled.
 _GUI_HEARTBEAT_TIMEOUT = 120.0
+# Without a console nobody can stop a server whose GUI window never connected
+# (browser failed to start, window closed while loading). Give up after this.
+_GUI_FIRST_HEARTBEAT_TIMEOUT = 180.0
+_GUI_EXPECT_CLIENT = False
+_GUI_STARTED_AT = time.time()
 
 
 def _terminate_gui_server():
@@ -58,6 +63,9 @@ def _start_gui_client_watchdog():
                 continue
             last = _GUI_LAST_HEARTBEAT
             if last is None:
+                if _GUI_EXPECT_CLIENT and time.time() - _GUI_STARTED_AT > _GUI_FIRST_HEARTBEAT_TIMEOUT:
+                    print("Structural Toolbox: no GUI window connected; stopping.")
+                    _terminate_gui_server()
                 continue
             if time.time() - last > _GUI_HEARTBEAT_TIMEOUT:
                 _terminate_gui_server()
@@ -384,6 +392,20 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
             _raise_os_error(ex)
         return JSONResponse(data)
 
+    @app.get("/api/wall-quantity/report")
+    def api_wall_quantity_report(
+        path: str = Query(..., description="Relative path to .dat under project root"),
+    ):
+        from fastapi.responses import HTMLResponse
+        from stb_gui.wall_quantity_view import error_page_html, render_wall_quantity_report_html
+
+        headers = {"Cache-Control": "no-store"}
+        try:
+            body = render_wall_quantity_report_html(path)
+        except (ValueError, OSError) as ex:
+            return HTMLResponse(error_page_html(str(ex)), status_code=400, headers=headers)
+        return HTMLResponse(body, headers=headers)
+
     @app.post("/api/loads/seismic/apply")
     def api_loads_seismic_apply(
         path: str = Query(..., description="Relative path to .dat under project root"),
@@ -491,14 +513,17 @@ def run_server(
     if _port_is_open(host, port):
         print("Structural Toolbox: already running at {0}".format(url))
         print("  project root: {0}".format(project_root()))
-        print("  Logs are in the other console window (do not close it while debugging).")
-        print("  Or end the old server: close that window, or stop python.exe in Task Manager.")
+        print("  Opening a new GUI window for it. To stop that server, close its GUI window.")
         if open_browser:
             try:
                 open_gui_browser(url)
             except Exception:
                 pass
         return "already_running"
+
+    global _GUI_EXPECT_CLIENT, _GUI_STARTED_AT
+    _GUI_EXPECT_CLIENT = bool(open_browser and exit_with_browser)
+    _GUI_STARTED_AT = time.time()
 
     if open_browser:
         threading.Thread(
@@ -526,7 +551,13 @@ def run_server(
         print("  {0}".format(runtime.summary_line()))
     except ImportError:
         pass
-    print("  Close the GUI window or press Ctrl+C here to stop the server.")
+    from stb_gui.applog import log_path as _console_log_path
+
+    if _console_log_path():
+        print("  Log file: {0}".format(_console_log_path()))
+        print("  Close the GUI window to stop the server.")
+    else:
+        print("  Close the GUI window or press Ctrl+C here to stop the server.")
     if not exit_with_browser:
         print("  (--no-exit-with-browser: server keeps running after the browser tab closes.)")
     if log_file:

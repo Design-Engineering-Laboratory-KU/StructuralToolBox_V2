@@ -26,6 +26,9 @@ def main():
     )
     args = parser.parse_args()
 
+    from stb_gui.applog import ensure_log_streams
+
+    ensure_log_streams()
     try:
         from stb_gui.server import run_server
     except ImportError as ex:

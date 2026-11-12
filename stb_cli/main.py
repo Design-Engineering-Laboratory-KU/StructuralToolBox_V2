@@ -375,13 +375,68 @@ def cmd_report(args):
     return EXIT_OK
 
 
+def cmd_wallcalc(args):
+    """木造壁量計算書 (wall quantity / balance / N値 / 柱の小径). Parse only; no solve needed."""
+    _ensure_project_root_on_path()
+    from stb_engine import parse_input
+    from stb_engine.errors import StbParseError
+    from stb_project import load_project_file, load_project_for_dat
+    from stb_reports import write_wall_quantity_report
+
+    try:
+        input_path = os.path.abspath(args.input)
+        if input_path.lower().endswith(".json"):
+            project = load_project_file(input_path)
+            dat_path = project.dat_path
+            if not os.path.isabs(dat_path):
+                dat_path = os.path.join(os.path.dirname(input_path), dat_path)
+        else:
+            dat_path = input_path
+            project = load_project_for_dat(dat_path, required=True)
+        if not project.wall_quantity.enabled:
+            raise ValueError("project.wall_quantity is not set (see docs/project_format.md)")
+
+        mdl = parse_input(_read_lines(dat_path))
+        mdl.filepath = dat_path
+        report = write_wall_quantity_report(
+            args.output, mdl, project, output_format=args.format, program_version=_stb_version(),
+        )
+    except IOError as ex:
+        _stderr(str(ex))
+        return EXIT_INPUT
+    except StbParseError as ex:
+        _stderr("Parse error: " + str(ex))
+        return EXIT_INPUT
+    except ValueError as ex:
+        _stderr(str(ex))
+        return EXIT_INPUT
+
+    if args.verbose:
+        s = report.summary
+        print("Wall quantity report written: " + args.output)
+        print("  wall quantity: " + s.status)
+        print("  balance (1/4): " + (s.balance.status if s.balance is not None else "-"))
+        print("  N-value:       " + (s.n_values.status if s.n_values is not None else "-"))
+        print("  column size:   " + (s.column_size.status if s.column_size is not None else "-"))
+        print("  overall:       " + report.status)
+        print("  warnings:    " + str(len(report.warnings)))
+    return EXIT_OK
+
+
 def cmd_gui(args):
     _ensure_project_root_on_path()
+    # Launched without a console (pythonw.exe): send output to a log file.
+    from stb_gui.applog import ensure_log_streams, log_path, show_error_dialog
+
+    ensure_log_streams()
+    no_console = log_path() is not None
     try:
         from stb_gui.server import run_server
     except ImportError as ex:
         _stderr(str(ex))
         _stderr("Install GUI extras: pip install -e \".[gui]\"")
+        if no_console:
+            show_error_dialog("必要なライブラリが見つかりません。初回セットアップを再実行してください。\n\n" + str(ex))
         return EXIT_INPUT
 
     try:
@@ -394,6 +449,18 @@ def cmd_gui(args):
         )
     except KeyboardInterrupt:
         return EXIT_OK
+    except SystemExit as ex:
+        # uvicorn exits with 1 when it cannot bind the port.
+        if ex.code not in (None, 0) and no_console:
+            show_error_dialog("サーバーを起動できませんでした（ポート {0} が使用中の可能性があります）。".format(args.port))
+        raise
+    except Exception as ex:
+        import traceback
+
+        traceback.print_exc()
+        if no_console:
+            show_error_dialog("サーバーの起動中にエラーが発生しました。\n\n" + str(ex))
+        return EXIT_INPUT
     if result == "already_running":
         return EXIT_GUI_ALREADY
     return EXIT_OK
@@ -475,6 +542,28 @@ def _build_parser():
         help="Report format (default: project.report.format)",
     )
     p_rep.set_defaults(func=cmd_report)
+
+    p_wall = sub.add_parser(
+        "wallcalc",
+        parents=[common],
+        help="Generate the wood wall-quantity report (壁量計算書, 2025 standard)",
+    )
+    p_wall.add_argument(
+        "input",
+        help="Project JSON with wall_quantity, or input model file with a .project.json sidecar",
+    )
+    p_wall.add_argument(
+        "-o", "--output",
+        required=True,
+        help="Output report file (.html or .md)",
+    )
+    p_wall.add_argument(
+        "--format",
+        choices=["markdown", "html"],
+        default=None,
+        help="Report format (default: from the output file extension)",
+    )
+    p_wall.set_defaults(func=cmd_wallcalc)
 
     p_loads = sub.add_parser(
         "loads",

@@ -46,7 +46,11 @@ from stb_project.schema import (
     WindMemberLoadPlaceholder,
     WindSurfaceSettings,
     WoodAllowableStresses,
+    WoodBendingDepthFactor,
     WoodCheckSettings,
+    WoodLoadCaseDuration,
+    WoodMaterialStrength,
+    WoodMemberCondition,
     WindDirectionConvention,
     compute_gust_factor_auto,
     direction_to_axis_sign,
@@ -70,6 +74,16 @@ from stb_project.schema import (
     load_project_for_dat,
     project_path_for_dat,
     validate_project_dict,
+)
+from stb_project.wall_quantity_settings import (
+    QuasiWallInput,
+    WallQuantitySeismicSettings,
+    WallQuantitySettings,
+    WallQuantityStoryInput,
+    WallQuantityWallOverride,
+    WallQuantityWindSettings,
+    parse_wall_quantity_settings,
+    wall_quantity_settings_to_dict,
 )
 from stb_project.load_combinations import (
     apply_load_combinations_to_model,

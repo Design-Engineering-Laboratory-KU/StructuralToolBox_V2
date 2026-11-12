@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "model": {
+    "dat": "sample_wall_quantity_2f.dat"
+  },
+  "building": {
+    "name": "壁量計算サンプル（木造2階建て）",
+    "location": "架空の敷地",
+    "use": "一戸建ての住宅",
+    "structure": "木造軸組構法",
+    "calculation_route": "仕様規定（壁量計算）",
+    "designer": {
+      "name": "Structural Toolbox",
+      "qualification": "",
+      "license_number": "",
+      "contact": ""
+    }
+  },
+  "grids": [
+    {"name": "X1", "direction": "x", "coordinate": 0.0},
+    {"name": "X2", "direction": "x", "coordinate": 1.82},
+    {"name": "X3", "direction": "x", "coordinate": 3.64},
+    {"name": "X4", "direction": "x", "coordinate": 5.46},
+    {"name": "X5", "direction": "x", "coordinate": 7.28},
+    {"name": "X6", "direction": "x", "coordinate": 9.1},
+    {"name": "Y1", "direction": "y", "coordinate": 0.0},
+    {"name": "Y2", "direction": "y", "coordinate": 1.82},
+    {"name": "Y3", "direction": "y", "coordinate": 3.64},
+    {"name": "Y4", "direction": "y", "coordinate": 5.46},
+    {"name": "Y5", "direction": "y", "coordinate": 7.28}
+  ],
+  "stories": [
+    {"name": "1", "elevation": 0.0, "height": 2.9},
+    {"name": "2", "elevation": 2.9, "height": 2.8}
+  ],
+  "member_classes": [],
+  "report": {
+    "title": "壁量計算サンプル（木造2階建て） 壁量計算書",
+    "mode": "practice",
+    "language": "ja",
+    "format": "html"
+  },
+  "wall_quantity": {
+    "enabled": true,
+    "standard": "2025",
+    "seismic": {
+      "method": "spec",
+      "c0": 0.2,
+      "roof": "slate",
+      "exterior_wall": "siding",
+      "solar": {"mode": "none"},
+      "ceiling_insulation": {"mode": "default"},
+      "wall_insulation": {"mode": "default"}
+    },
+    "wind": {"coefficient_cm_m2": 50},
+    "stories": [
+      {
+        "story": "1",
+        "floor_area_m2": 66.248,
+        "wind_area_x_m2": 38.2,
+        "wind_area_y_m2": 41.0,
+        "plan_polygons": [[[0.0, 0.0], [9.1, 0.0], [9.1, 7.28], [0.0, 7.28]]]
+      },
+      {
+        "story": "2",
+        "floor_area_m2": 39.749,
+        "wind_area_x_m2": 17.1,
+        "wind_area_y_m2": 15.4,
+        "plan_polygons": [[[0.0, 0.0], [5.46, 0.0], [5.46, 7.28], [0.0, 7.28]]]
+      }
+    ],
+    "walls": [
+      {"wwll_id": 7, "kind": "brace", "brace_section": "45x90", "brace_layout": "single", "notes": "筋かい45×90 片掛け"}
+    ],
+    "quasi_walls": [
+      {"name": "Q1", "story": "1", "direction": "x", "length_m": 1.82, "type": "hanging_waist",
+       "material": "panel", "base_multiplier": 2.5, "material_height_m": 1.0, "clear_height_m": 2.65,
+       "x": 2.73, "y": 0.0, "notes": "腰壁・垂れ壁（構造用合板）"}
+    ],
+    "column_size": {
+      "stories": [
+        {"story": "1", "jas": "JAS目視等級区分構造用製材", "species": "すぎ", "grade": "二級"},
+        {"story": "2", "jas": "JAS目視等級区分構造用製材", "species": "すぎ", "grade": "二級"}
+      ]
+    }
+  }
+}

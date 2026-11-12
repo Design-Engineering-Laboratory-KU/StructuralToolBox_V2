@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using GH_IO.Serialization;
+using Grasshopper;
 using Grasshopper.Kernel;
 using Rhino.Geometry;
 
@@ -102,25 +103,37 @@ namespace StbGrasshopper
                 "Draw the stress legend in the Rhino viewport.",
                 GH_ParamAccess.item,
                 true);
+            pManager.AddTextParameter(
+                "Name",
+                "Name",
+                "Element names (STb Element Name) to display. Empty shows every element.",
+                GH_ParamAccess.list);
+            pManager[5].Optional = true;
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
+            const string branches = " One branch per element: {Element ID}, or {LC;Element ID} for several load cases.";
             pManager.AddLineParameter(
                 "Segments",
                 "L",
-                "Colored member segments.",
-                GH_ParamAccess.list);
+                "Colored member segments from start to end." + branches,
+                GH_ParamAccess.tree);
             pManager.AddNumberParameter(
                 "Stress",
                 "S",
-                "Absolute stress of the selected component at each segment in N/mm2.",
-                GH_ParamAccess.list);
+                "Absolute stress of the selected component at each segment in N/mm2." + branches,
+                GH_ParamAccess.tree);
             pManager.AddColourParameter(
                 "Colors",
                 "C",
-                "Preview color for each segment.",
-                GH_ParamAccess.list);
+                "Preview color for each segment." + branches,
+                GH_ParamAccess.tree);
+            pManager.AddIntegerParameter(
+                "Element IDs",
+                "E",
+                "Element id of each branch." + branches,
+                GH_ParamAccess.tree);
         }
 
         protected override void SolveInstance(IGH_DataAccess da)
@@ -143,6 +156,8 @@ namespace StbGrasshopper
             da.GetData(2, ref divisions);
             da.GetData(3, ref requestedMaximum);
             da.GetData(4, ref _showLegend);
+            var names = new List<string>();
+            da.GetDataList(5, names);
             divisions = Math.Max(1, Math.Min(100, divisions));
             Message = Modes[_mode].Name;
 
@@ -172,6 +187,7 @@ namespace StbGrasshopper
                 sections[section.SectionId] = section;
             }
 
+            var nameFilter = StbElementNameFilter.Create(names, da, 0, this);
             var rawSegments = new List<RawStressSegment>();
             var hasElementLoadSegments = results.ElementLoadSegments.Count > 0;
             foreach (var force in results.ElementForces)
@@ -190,6 +206,11 @@ namespace StbGrasshopper
                 }
 
                 if (section.Area <= 0.0 || section.Wy <= 0.0 || section.Wz <= 0.0)
+                {
+                    continue;
+                }
+
+                if (nameFilter != null && !nameFilter.Includes(new Line(start, end)))
                 {
                     continue;
                 }
@@ -218,7 +239,7 @@ namespace StbGrasshopper
                             Interpolate(start, end, t0),
                             Interpolate(start, end, t1));
 
-                        rawSegments.Add(new RawStressSegment(line, stress));
+                        rawSegments.Add(new RawStressSegment(line, stress, force.ElementId, force.LoadCase));
                         _legendMaximum = Math.Max(_legendMaximum, stress);
                         _clippingBox.Union(line.BoundingBox);
                     }
@@ -239,7 +260,7 @@ namespace StbGrasshopper
                             Interpolate(start, end, t0),
                             Interpolate(start, end, t1));
 
-                        rawSegments.Add(new RawStressSegment(line, stress));
+                        rawSegments.Add(new RawStressSegment(line, stress, force.ElementId, force.LoadCase));
                         _legendMaximum = Math.Max(_legendMaximum, stress);
                         _clippingBox.Union(line.BoundingBox);
                     }
@@ -264,22 +285,37 @@ namespace StbGrasshopper
                 _legendMaximum = 1.0;
             }
 
-            var outputLines = new List<Line>();
-            var outputStress = new List<double>();
-            var outputColors = new List<Color>();
+            var loadCases = new HashSet<int>();
+            foreach (var segment in rawSegments)
+            {
+                loadCases.Add(segment.LoadCase);
+            }
+
+            var withCase = loadCases.Count > 1;
+            var outputLines = new DataTree<Line>();
+            var outputStress = new DataTree<double>();
+            var outputColors = new DataTree<Color>();
+            var outputElementIds = new DataTree<int>();
 
             foreach (var segment in rawSegments)
             {
                 var color = StbLegend.ColorFor(segment.Stress / _legendMaximum);
                 _segments.Add(new StressSegment(segment.Line, color));
-                outputLines.Add(segment.Line);
-                outputStress.Add(segment.Stress);
-                outputColors.Add(color);
+                var path = StbLoadCaseFilter.ElementPath(withCase, segment.LoadCase, segment.ElementId);
+                if (!outputElementIds.PathExists(path))
+                {
+                    outputElementIds.Add(segment.ElementId, path);
+                }
+
+                outputLines.Add(segment.Line, path);
+                outputStress.Add(segment.Stress, path);
+                outputColors.Add(color, path);
             }
 
-            da.SetDataList(0, outputLines);
-            da.SetDataList(1, outputStress);
-            da.SetDataList(2, outputColors);
+            da.SetDataTree(0, outputLines);
+            da.SetDataTree(1, outputStress);
+            da.SetDataTree(2, outputColors);
+            da.SetDataTree(3, outputElementIds);
         }
 
         public override void DrawViewportWires(IGH_PreviewArgs args)
@@ -377,14 +413,18 @@ namespace StbGrasshopper
 
         private sealed class RawStressSegment
         {
-            public RawStressSegment(Line line, double stress)
+            public RawStressSegment(Line line, double stress, int elementId, int loadCase)
             {
                 Line = line;
                 Stress = stress;
+                ElementId = elementId;
+                LoadCase = loadCase;
             }
 
             public Line Line { get; }
             public double Stress { get; }
+            public int ElementId { get; }
+            public int LoadCase { get; }
         }
 
         private sealed class StressSegment

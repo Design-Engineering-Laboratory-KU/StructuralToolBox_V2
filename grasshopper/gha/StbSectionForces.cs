@@ -6,6 +6,14 @@ namespace StbGrasshopper
     internal static class StbSectionForces
     {
         private const double MergeTolerance = 1e-9;
+        private const double PointTolerance = 1e-12;
+        // Stations either side of a concentrated load so diagrams show the jump.
+        private const double JumpOffset = 1e-6;
+
+        internal static bool IsPoint(ElementLoadSegment segment)
+        {
+            return Math.Abs(segment.T1 - segment.T0) <= PointTolerance;
+        }
 
         internal static SectionForceValues Evaluate(
             ElementForce force,
@@ -35,13 +43,15 @@ namespace StbGrasshopper
             {
                 foreach (var segment in segments)
                 {
-                    if (segment.T0 > MergeTolerance && segment.T0 < 1.0 - MergeTolerance)
+                    var candidates = IsPoint(segment)
+                        ? new[] { segment.T0 - JumpOffset, segment.T0, segment.T0 + JumpOffset }
+                        : new[] { segment.T0, segment.T1 };
+                    foreach (var value in candidates)
                     {
-                        values.Add(segment.T0);
-                    }
-                    if (segment.T1 > MergeTolerance && segment.T1 < 1.0 - MergeTolerance)
-                    {
-                        values.Add(segment.T1);
+                        if (value > MergeTolerance && value < 1.0 - MergeTolerance)
+                        {
+                            values.Add(value);
+                        }
                     }
                 }
             }
@@ -74,6 +84,19 @@ namespace StbGrasshopper
 
             foreach (var segment in segments)
             {
+                if (IsPoint(segment))
+                {
+                    // W values of a point segment are forces; the load acts on sections past it.
+                    if (t > segment.T0 || segment.T0 <= 0.0)
+                    {
+                        GetLoads(segment, component, out var p, out _);
+                        resultant += p;
+                        firstMoment += p * length * (t - segment.T0);
+                    }
+
+                    continue;
+                }
+
                 var a = Math.Max(0.0, segment.T0);
                 var b = Math.Min(t, segment.T1);
                 var span = segment.T1 - segment.T0;

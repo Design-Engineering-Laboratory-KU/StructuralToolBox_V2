@@ -1,4 +1,11 @@
 const MERGE_TOL = 1e-9;
+const POINT_TOL = 1e-12;
+// Stations either side of a concentrated load so diagrams show the jump.
+const JUMP_DT = 1e-6;
+
+function isPointSegment(seg) {
+  return Math.abs(Number(seg[1]) - Number(seg[0])) <= POINT_TOL;
+}
 
 export function forceSegments(e, lcKey, memberLoadSignFn) {
   if (e && e.wsegs != null) {
@@ -15,6 +22,12 @@ function segmentIntegrals(seg, len, x) {
   const t1 = Number(seg[1]);
   const a = t0 * len;
   const b = t1 * len;
+  if (isPointSegment(seg)) {
+    // W values of a point segment are forces; the load acts on sections past it.
+    if (!(x > a || a <= 0)) return [[0, 0, 0], [0, 0, 0]];
+    const p = [0, 1, 2].map(function (c) { return Number(seg[2 + c]) || 0; });
+    return [p, p.map(function (v) { return v * (x - a); })];
+  }
   const u = Math.min(b, x);
   if (!(u > a) || !(b > a)) return [[0, 0, 0], [0, 0, 0]];
 
@@ -56,7 +69,9 @@ export function sectionForceAt(f, len, segs, t) {
 export function breakpoints(segs) {
   const values = [];
   for (const seg of segs || []) {
-    for (const value of [Number(seg[0]), Number(seg[1])]) {
+    const ends = [Number(seg[0]), Number(seg[1])];
+    if (isPointSegment(seg)) ends.push(ends[0] - JUMP_DT, ends[0] + JUMP_DT);
+    for (const value of ends) {
       if (value > 0 && value < 1) values.push(value);
     }
   }

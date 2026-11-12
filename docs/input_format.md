@@ -23,6 +23,7 @@ The keyword **`LOAD` is not read**. It does not mean “point, line, or area” 
 |--------|-----|
 | Point load (force/moment at a node) | **`PLOD`** |
 | Distributed load on a member | **`ELOD`** |
+| Point load inside a member | **`EPLD`** |
 | Pressure on a panel bounded by members | **`ALOD`** |
 | Self-weight / gravity direction | **`GLOD`** |
 
@@ -40,6 +41,7 @@ Old files may still contain `LOAD` lines (e.g. `data/input01.dat`); those lines 
 | Section dimensions | mm | Converted to m |
 | Point loads (PLOD) | kN, kNm | |
 | Member loads (ELOD) | kN/m | |
+| Member point loads (EPLD) | kN | |
 | Area loads (ALOD) | kN/m² | |
 | Gravity (GLOD) | m/s² | Components gx, gy, gz |
 | EJNT spring values | kNm/rad | Optional; blank = default rigid offsets |
@@ -303,6 +305,33 @@ ELOD, 1, 0, 0, 0.0, 0.0, -10.0, 0.0, 0.0, -10.0, 0.2, 0.4
 
 ---
 
+### `EPLD` — member point load (concentrated load on a member)
+
+```
+EPLD, ELEM_ID, LC, E_G, PX, PY, PZ, T
+```
+
+| Field | Description |
+|-------|-------------|
+| E_G | `0` = element local axes, `1` = global axes |
+| PX, PY, PZ | Concentrated force (kN) |
+| T | Position along the member, `t = 0` at node Ni, `t = 1` at node Nj (required, `0 <= T <= 1`) |
+
+The force acts at a point inside the member without adding a node. It is
+handled like `ELOD` (fixed-end forces from the member shape functions,
+including shear deformation), so displacements, reactions and member end
+forces equal those of a member split at `T` with a `PLOD` at the new node.
+The component along the member axis is applied as axial force.
+Section-force diagrams show the jump in shear at `T`.
+
+Example (20 kN downward, global axes, at 30 % of member 1):
+
+```
+EPLD, 1, 0, 1, 0.0, 0.0, -20.0, 0.3
+```
+
+---
+
 ### `ALOD` — area load (surface pressure)
 
 ```
@@ -517,7 +546,7 @@ Result files are text, with records such as:
 | `NDSP` | Nodal displacements (m, rad) |
 | `REAC` | Reactions at constrained nodes: Tx, Ty, Tz (kN), Rx, Ry, Rz (kNm) |
 | `EFRC` | Element end forces (kN, kNm) |
-| `EWLD` | Element load segments for section-force diagrams: `EWLD, LC, ELEM, T0, T1, WXi, WYi, WZi, WXj, WYj, WZj` (local axes, kN/m, WY/WZ in the diagram sign convention of `EFRC`); written only for members that carry line loads |
+| `EWLD` | Element load segments for section-force diagrams: `EWLD, LC, ELEM, T0, T1, WXi, WYi, WZi, WXj, WYj, WZj` (local axes, kN/m, WY/WZ in the diagram sign convention of `EFRC`); written only for members that carry line loads. A row with `T0 = T1` is an `EPLD` point load at `T0`, and its W values are the force in kN |
 
 See `examples/cantilever.out` for a full example.
 
@@ -529,7 +558,7 @@ See `examples/cantilever.out` for a full example.
 2. `NODE`
 3. `ELEM` (and optional `EJNT`)
 4. `CONS`
-5. `PLOD`, `ELOD`, `ALOD`, `GLOD` (and optional `LNME`, `LCMB`)
+5. `PLOD`, `ELOD`, `EPLD`, `ALOD`, `GLOD` (and optional `LNME`, `LCMB`)
 6. Optional `AXIS`, `PLOT` (mainly for GUI)
 
 Validate before solving:

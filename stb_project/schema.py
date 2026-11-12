@@ -1,6 +1,6 @@
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Optional, Tuple
 
 
@@ -49,7 +49,8 @@ ALLOWED_WIND_SURFACE_ROLES = ("WINDWARD", "LEEWARD", "SIDE", "ROOF", "PARAPET")
 DEFAULT_WIND_PRESSURE_MODE = "BUILDING_HEIGHT_UNIFORM"
 DEFAULT_WIND_DIAPHRAGM_INPUT_MODE = "DIAPHRAGM_DIRECT"
 DEFAULT_WIND_SURFACE_ROLE = "WINDWARD"
-ALLOWED_LOAD_COMBINATION_DURATIONS = ("LONG_TERM", "SHORT_TERM")
+ALLOWED_LOAD_COMBINATION_DURATIONS = ("LONG_TERM", "SHORT_TERM", "LONG_TERM_SNOW", "SHORT_TERM_SNOW")
+ALLOWED_WOOD_CONDITION_KINDS = ("beam", "column", "brace")
 DEFAULT_LOAD_COMBINATION_DURATION = "LONG_TERM"
 
 ROUGHNESS_ZB = {"I": 5.0, "II": 5.0, "III": 5.0, "IV": 10.0}
@@ -273,6 +274,74 @@ PROJECT_JSON_SCHEMA = {
                                 "tension": {"type": "number"},
                             },
                         },
+                        "load_case_durations": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["load_case", "duration"],
+                                "properties": {
+                                    "load_case": {"type": "integer"},
+                                    "duration": {"enum": list(ALLOWED_LOAD_COMBINATION_DURATIONS)},
+                                },
+                            },
+                        },
+                        "materials": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["name", "compression", "tension", "bending", "shear"],
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "compression": {"type": "number"},
+                                    "tension": {"type": "number"},
+                                    "bending": {"type": "number"},
+                                    "shear": {"type": "number"},
+                                    "bearing": {"type": "number"},
+                                    "bending_depth_factors": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "additionalProperties": False,
+                                            "required": ["max_depth_mm", "factor"],
+                                            "properties": {
+                                                "max_depth_mm": {"type": "number"},
+                                                "factor": {"type": "number"},
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        "conditions": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "kind": {"enum": list(ALLOWED_WOOD_CONDITION_KINDS)},
+                                    "member_class": {"type": "string"},
+                                    "area_reduction_percent": {"type": "number"},
+                                    "section_modulus_reduction_percent": {"type": "number"},
+                                    "shear_area_reduction_percent": {"type": "number"},
+                                    "inertia_reduction_percent": {"type": "number"},
+                                    "buckling_factor_y": {"type": "number"},
+                                    "buckling_factor_z": {"type": "number"},
+                                    "lateral_buckling_coefficient": {"type": "number"},
+                                    "biaxial_bending": {"type": "boolean"},
+                                    "slenderness_limit": {"type": "number"},
+                                    "check_bearing": {"type": "boolean"},
+                                    "bearing_area_loss_mm2": {"type": "number"},
+                                    "deflection_ratio_long_term": {"type": "number"},
+                                    "deflection_ratio_long_term_snow": {"type": "number"},
+                                    "deflection_ratio_short_term_snow": {"type": "number"},
+                                    "deflection_mm_long_term": {"type": "number"},
+                                    "deflection_mm_long_term_snow": {"type": "number"},
+                                    "deflection_mm_short_term_snow": {"type": "number"},
+                                },
+                            },
+                        },
                     },
                 },
             },
@@ -358,11 +427,66 @@ class WoodAllowableStresses:
 
 
 @dataclass(frozen=True)
+class WoodBendingDepthFactor:
+    """Size factor applied to the bending strength for depths up to max_depth_mm."""
+
+    max_depth_mm: float
+    factor: float
+
+
+@dataclass(frozen=True)
+class WoodMaterialStrength:
+    """Base design strengths (N/mm2) for a material, matched by its MATE name."""
+
+    name: str
+    compression: float
+    tension: float
+    bending: float
+    shear: float
+    bearing: float = 0.0
+    bending_depth_factors: Tuple[WoodBendingDepthFactor, ...] = ()
+
+
+@dataclass(frozen=True)
+class WoodLoadCaseDuration:
+    load_case: int
+    duration: str
+
+
+@dataclass(frozen=True)
+class WoodMemberCondition:
+    """Check conditions for a member class, or for every member of a kind."""
+
+    kind: str = ""
+    member_class: str = ""
+    area_reduction_percent: float = 0.0
+    section_modulus_reduction_percent: float = 0.0
+    shear_area_reduction_percent: float = 0.0
+    inertia_reduction_percent: float = 0.0
+    buckling_factor_y: float = 1.0
+    buckling_factor_z: float = 1.0
+    lateral_buckling_coefficient: float = 1.9
+    biaxial_bending: bool = True
+    slenderness_limit: float = 150.0
+    check_bearing: bool = False
+    bearing_area_loss_mm2: float = 0.0
+    deflection_ratio_long_term: float = 0.0
+    deflection_ratio_long_term_snow: float = 0.0
+    deflection_ratio_short_term_snow: float = 0.0
+    deflection_mm_long_term: float = 0.0
+    deflection_mm_long_term_snow: float = 0.0
+    deflection_mm_short_term_snow: float = 0.0
+
+
+@dataclass(frozen=True)
 class WoodCheckSettings:
     enabled: bool = False
     load_cases: Tuple[int, ...] = ()
     deflection_limit_ratio: float = 0.0
     allowable_stresses: WoodAllowableStresses = field(default_factory=WoodAllowableStresses)
+    load_case_durations: Tuple[WoodLoadCaseDuration, ...] = ()
+    materials: Tuple[WoodMaterialStrength, ...] = ()
+    conditions: Tuple[WoodMemberCondition, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -791,9 +915,15 @@ class ProjectDefinition:
     load_conditions: LoadConditionSettings
     report: ReportSettings
     source_path: Optional[str] = None
+    wall_quantity: "WallQuantitySettings" = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.wall_quantity is None:
+            from stb_project.wall_quantity_settings import WallQuantitySettings
+            object.__setattr__(self, "wall_quantity", WallQuantitySettings())
 
     def to_dict(self):
-        return {
+        out = {
             "schema": self.schema,
             "model": {"dat": self.dat_path},
             "building": {
@@ -829,17 +959,7 @@ class ProjectDefinition:
                 for c in self.member_classes
             ],
             "design_checks": {
-                "wood": {
-                    "enabled": self.design_checks.wood.enabled,
-                    "load_cases": list(self.design_checks.wood.load_cases),
-                    "deflection_limit_ratio": self.design_checks.wood.deflection_limit_ratio,
-                    "allowable_stresses": {
-                        "bending": self.design_checks.wood.allowable_stresses.bending,
-                        "shear": self.design_checks.wood.allowable_stresses.shear,
-                        "compression": self.design_checks.wood.allowable_stresses.compression,
-                        "tension": self.design_checks.wood.allowable_stresses.tension,
-                    },
-                },
+                "wood": _wood_settings_to_dict(self.design_checks.wood),
             },
             "load_conditions": {
                 "seismic": _seismic_settings_to_dict(self.load_conditions.seismic),
@@ -876,6 +996,10 @@ class ProjectDefinition:
                 "include_warnings": self.report.include_warnings,
             },
         }
+        if not self.wall_quantity.is_default:
+            from stb_project.wall_quantity_settings import wall_quantity_settings_to_dict
+            out["wall_quantity"] = wall_quantity_settings_to_dict(self.wall_quantity)
+        return out
 
 
 def _seismic_settings_to_dict(seismic: SeismicLoadSettings):
@@ -983,7 +1107,7 @@ def validate_project_dict(raw, source_path=None):
         raw,
         [
             "schema", "model", "building", "grids", "stories", "member_classes",
-            "design_checks", "load_conditions", "report",
+            "design_checks", "load_conditions", "report", "wall_quantity",
         ],
         "project",
     )
@@ -1004,6 +1128,8 @@ def validate_project_dict(raw, source_path=None):
     design_checks = _parse_design_checks(raw.get("design_checks", {}))
     load_conditions = _parse_load_conditions(raw.get("load_conditions", {}))
     report = _parse_report(_required(raw, "report", "project"))
+    from stb_project.wall_quantity_settings import parse_wall_quantity_settings
+    wall_quantity = parse_wall_quantity_settings(raw.get("wall_quantity"))
 
     return ProjectDefinition(
         schema=schema,
@@ -1016,6 +1142,7 @@ def validate_project_dict(raw, source_path=None):
         load_conditions=load_conditions,
         report=report,
         source_path=source_path,
+        wall_quantity=wall_quantity,
     )
 
 
@@ -1777,11 +1904,45 @@ def _with_floor_load_weight_cases(seismic: SeismicLoadSettings, floor_loads):
     )
 
 
+def _wood_settings_to_dict(wood):
+    out = {
+        "enabled": wood.enabled,
+        "load_cases": list(wood.load_cases),
+        "deflection_limit_ratio": wood.deflection_limit_ratio,
+        "allowable_stresses": {
+            "bending": wood.allowable_stresses.bending,
+            "shear": wood.allowable_stresses.shear,
+            "compression": wood.allowable_stresses.compression,
+            "tension": wood.allowable_stresses.tension,
+        },
+    }
+    # Optional sections stay out of the file until used, so saving an older
+    # project does not rewrite it with empty keys.
+    if wood.load_case_durations:
+        out["load_case_durations"] = [asdict(d) for d in wood.load_case_durations]
+    if wood.materials:
+        out["materials"] = [
+            {**asdict(m), "bending_depth_factors": [asdict(f) for f in m.bending_depth_factors]}
+            for m in wood.materials
+        ]
+    if wood.conditions:
+        out["conditions"] = [asdict(c) for c in wood.conditions]
+    return out
+
+
 def _parse_wood_check_settings(raw):
     _require_type(raw, dict, "project.design_checks.wood")
     _reject_unknown(
         raw,
-        ["enabled", "load_cases", "deflection_limit_ratio", "allowable_stresses"],
+        [
+            "enabled",
+            "load_cases",
+            "deflection_limit_ratio",
+            "allowable_stresses",
+            "load_case_durations",
+            "materials",
+            "conditions",
+        ],
         "project.design_checks.wood",
     )
     allowable = _parse_wood_allowable_stresses(raw.get("allowable_stresses", {}))
@@ -1795,7 +1956,152 @@ def _parse_wood_check_settings(raw):
             default=0.0,
         ),
         allowable_stresses=allowable,
+        load_case_durations=_parse_wood_load_case_durations(raw.get("load_case_durations", [])),
+        materials=_parse_wood_materials(raw.get("materials", [])),
+        conditions=_parse_wood_conditions(raw.get("conditions", [])),
     )
+
+
+def _parse_wood_load_case_durations(raw):
+    path = "project.design_checks.wood.load_case_durations"
+    _require_type(raw, list, path)
+    out = []
+    for idx, item in enumerate(raw):
+        item_path = path + "[" + str(idx) + "]"
+        _require_type(item, dict, item_path)
+        _reject_unknown(item, ["load_case", "duration"], item_path)
+        load_case = item.get("load_case")
+        if type(load_case) is not int:
+            raise ProjectSchemaError(item_path + ".load_case must be an integer")
+        duration = _required_string(item, "duration", item_path).strip().upper()
+        if duration not in ALLOWED_LOAD_COMBINATION_DURATIONS:
+            raise ProjectSchemaError(item_path + ".duration is not supported: " + duration)
+        out.append(WoodLoadCaseDuration(load_case=load_case, duration=duration))
+    return tuple(out)
+
+
+def _parse_wood_materials(raw):
+    path = "project.design_checks.wood.materials"
+    _require_type(raw, list, path)
+    out = []
+    for idx, item in enumerate(raw):
+        item_path = path + "[" + str(idx) + "]"
+        _require_type(item, dict, item_path)
+        _reject_unknown(
+            item,
+            ["name", "compression", "tension", "bending", "shear", "bearing", "bending_depth_factors"],
+            item_path,
+        )
+        name = _required_string(item, "name", item_path).strip()
+        if not name:
+            raise ProjectSchemaError(item_path + ".name must not be empty")
+        strengths = {}
+        for key in ("compression", "tension", "bending", "shear"):
+            value = _optional_number(item, key, item_path, default=0.0)
+            if value <= 0.0:
+                raise ProjectSchemaError(item_path + "." + key + " must be positive")
+            strengths[key] = value
+        bearing = _optional_number(item, "bearing", item_path, default=0.0)
+        if bearing < 0.0:
+            raise ProjectSchemaError(item_path + ".bearing must not be negative")
+        out.append(WoodMaterialStrength(
+            name=name,
+            bearing=bearing,
+            bending_depth_factors=_parse_wood_depth_factors(
+                item.get("bending_depth_factors", []),
+                item_path + ".bending_depth_factors",
+            ),
+            **strengths,
+        ))
+    return tuple(out)
+
+
+def _parse_wood_depth_factors(raw, path):
+    _require_type(raw, list, path)
+    out = []
+    for idx, item in enumerate(raw):
+        item_path = path + "[" + str(idx) + "]"
+        _require_type(item, dict, item_path)
+        _reject_unknown(item, ["max_depth_mm", "factor"], item_path)
+        max_depth = _optional_number(item, "max_depth_mm", item_path, default=0.0)
+        factor = _optional_number(item, "factor", item_path, default=0.0)
+        if max_depth <= 0.0 or factor <= 0.0:
+            raise ProjectSchemaError(item_path + " requires positive max_depth_mm and factor")
+        out.append(WoodBendingDepthFactor(max_depth_mm=max_depth, factor=factor))
+    return tuple(sorted(out, key=lambda f: f.max_depth_mm))
+
+
+_WOOD_CONDITION_PERCENT_KEYS = (
+    "area_reduction_percent",
+    "section_modulus_reduction_percent",
+    "shear_area_reduction_percent",
+    "inertia_reduction_percent",
+)
+_WOOD_CONDITION_NON_NEGATIVE_KEYS = (
+    "slenderness_limit",
+    "bearing_area_loss_mm2",
+    "deflection_ratio_long_term",
+    "deflection_ratio_long_term_snow",
+    "deflection_ratio_short_term_snow",
+    "deflection_mm_long_term",
+    "deflection_mm_long_term_snow",
+    "deflection_mm_short_term_snow",
+)
+_WOOD_CONDITION_POSITIVE_KEYS = (
+    "buckling_factor_y",
+    "buckling_factor_z",
+    "lateral_buckling_coefficient",
+)
+
+
+def _parse_wood_conditions(raw):
+    path = "project.design_checks.wood.conditions"
+    _require_type(raw, list, path)
+    out = []
+    defaults = WoodMemberCondition()
+    for idx, item in enumerate(raw):
+        item_path = path + "[" + str(idx) + "]"
+        _require_type(item, dict, item_path)
+        _reject_unknown(
+            item,
+            ["kind", "member_class", "biaxial_bending", "check_bearing"]
+            + list(_WOOD_CONDITION_PERCENT_KEYS)
+            + list(_WOOD_CONDITION_NON_NEGATIVE_KEYS)
+            + list(_WOOD_CONDITION_POSITIVE_KEYS),
+            item_path,
+        )
+        kind = str(item.get("kind", "") or "").strip()
+        member_class = str(item.get("member_class", "") or "").strip()
+        if bool(kind) == bool(member_class):
+            raise ProjectSchemaError(item_path + " requires exactly one of kind or member_class")
+        if kind and kind not in ALLOWED_WOOD_CONDITION_KINDS:
+            raise ProjectSchemaError(item_path + ".kind is not supported: " + kind)
+
+        numbers = {}
+        for key in _WOOD_CONDITION_PERCENT_KEYS:
+            value = _optional_number(item, key, item_path, default=getattr(defaults, key))
+            if value < 0.0 or value >= 100.0:
+                raise ProjectSchemaError(item_path + "." + key + " must be at least 0 and below 100")
+            numbers[key] = value
+        for key in _WOOD_CONDITION_NON_NEGATIVE_KEYS:
+            value = _optional_number(item, key, item_path, default=getattr(defaults, key))
+            if value < 0.0:
+                raise ProjectSchemaError(item_path + "." + key + " must not be negative")
+            numbers[key] = value
+        for key in _WOOD_CONDITION_POSITIVE_KEYS:
+            value = _optional_number(item, key, item_path, default=getattr(defaults, key))
+            if value <= 0.0:
+                raise ProjectSchemaError(item_path + "." + key + " must be positive")
+            numbers[key] = value
+
+        out.append(WoodMemberCondition(
+            kind=kind,
+            member_class=member_class,
+            biaxial_bending=_optional_bool(item, "biaxial_bending", item_path, default=defaults.biaxial_bending),
+            check_bearing=_optional_bool(item, "check_bearing", item_path, default=defaults.check_bearing),
+            **numbers,
+        ))
+    return tuple(out)
 
 
 def _parse_wood_allowable_stresses(raw):
@@ -1886,3 +2192,7 @@ def _reject_unknown(raw, allowed, path):
         if key not in allowed:
             raise ProjectSchemaError(path + "." + str(key) + " is not supported")
 
+
+from stb_project.wall_quantity_settings import WALL_QUANTITY_JSON_SCHEMA as _WALL_QUANTITY_JSON_SCHEMA  # noqa: E402
+
+PROJECT_JSON_SCHEMA["properties"]["wall_quantity"] = _WALL_QUANTITY_JSON_SCHEMA

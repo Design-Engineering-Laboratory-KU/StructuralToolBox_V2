@@ -768,6 +768,7 @@ class Elm1D:
     
     #@staticmethod
     def DrawForceDiagram(self, _mdl, _lc, disp_fac, div_num):
+        from ld import segment_linear_equivalent
 
         #for e in relevant_elms:
         e    = self
@@ -787,7 +788,10 @@ class Elm1D:
 
             el_lds = np.array(el.lds).reshape(6, 1)
             if el.isGlobal == True: el_lds = tm[0:6, 0:6] @ el_lds
-            for i in range(6): lds[i] += el_lds[i, 0]
+            el_lds = el_lds.flatten()
+            if el.is_partial:
+                el_lds = segment_linear_equivalent(e.len, el.t0, el.t1, el_lds)
+            for i in range(6): lds[i] += el_lds[i]
         
         if e.glds is not None: lds += e.glds[:, clc]
 

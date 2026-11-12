@@ -524,7 +524,9 @@ namespace StbGrasshopper
             : base(
                 "STb Line Load",
                 "STb LLoad",
-                "Create an STb distributed load on a frame element. Choose Linear, Partial, Triangle, or Trapezoid from the drop-down.",
+                "Create an STb load on a frame element. Choose Linear, Partial, Triangle, or Trapezoid for a distributed load (kN/m), "
+                + "or Point for a concentrated load (kN) at position T from the drop-down. "
+                + "A load component parallel to the member axis is applied as axial force.",
                 StbCategories.Tab,
                 StbCategories.Load)
         {
@@ -574,7 +576,7 @@ namespace StbGrasshopper
                 new StbLoadParameter(),
                 "STb Load",
                 "Ld",
-                "STB line load segment(s); triangle and trapezoid modes emit multiple records.",
+                "STB line load segment(s) or one point load; triangle and trapezoid modes emit multiple records.",
                 GH_ParamAccess.list);
         }
 
@@ -629,31 +631,24 @@ namespace StbGrasshopper
                 return;
             }
 
-            var axis = elementGoo.Value.Line.Direction;
-            var axisValid = axis.Unitize();
-            foreach (var segment in segments)
+            var loads = new List<StbLoadGoo>();
+            if (_lineLoadShape == StbLineLoadShapes.PointMode)
             {
-                if (!axisValid)
+                var point = segments[0];
+                loads.Add(new StbLoadGoo(new StbLoadModel
                 {
-                    continue;
-                }
-
-                var axialAtI = isGlobal
-                    ? Vector3d.Multiply(segment.Wi, axis)
-                    : segment.Wi.X;
-                var axialAtJ = isGlobal
-                    ? Vector3d.Multiply(segment.Wj, axis)
-                    : segment.Wj.X;
-                if (Math.Abs(axialAtI) > 1e-9 || Math.Abs(axialAtJ) > 1e-9)
-                {
-                    AddRuntimeMessage(
-                        GH_RuntimeMessageLevel.Warning,
-                        "The STB solver currently ignores the member-axis component of ELOD.");
-                    break;
-                }
+                    Kind = StbLoadKind.ElementPoint,
+                    ElementLine = elementGoo.Value.Line,
+                    LoadCase = loadCase,
+                    IsGlobal = isGlobal,
+                    Force = point.Wi,
+                    T0 = point.T0,
+                    T1 = point.T0,
+                }));
+                da.SetDataList(0, loads);
+                return;
             }
 
-            var loads = new List<StbLoadGoo>();
             foreach (var segment in segments)
             {
                 loads.Add(new StbLoadGoo(new StbLoadModel
@@ -1068,6 +1063,8 @@ namespace StbGrasshopper
             pManager.AddTextParameter("DAT", "DAT", "Output .dat path. Empty uses the temp folder.", GH_ParamAccess.item, string.Empty);
             pManager.AddBooleanParameter("Write", "Write", "Write the .dat file.", GH_ParamAccess.item, false);
             pManager.AddGenericParameter("Results", "R", "Optional parsed results to store in STb Model.", GH_ParamAccess.item);
+            // Incomplete wiring is a warning (orange), not an error (red).
+            Params.Input[0].Optional = true;
             Params.Input[1].Optional = true;
             Params.Input[2].Optional = true;
             Params.Input[3].Optional = true;
@@ -1095,11 +1092,44 @@ namespace StbGrasshopper
 
             if (elements.Count == 0)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "At least one element is required.");
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "At least one element is required.");
+                if (loads.Count == 0)
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No loads connected.");
+                }
+
+                if (supports.Count == 0)
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No supports connected.");
+                }
+
                 return;
             }
 
+            if (loads.Count == 0)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No loads connected.");
+            }
+
+            if (supports.Count == 0)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No supports connected.");
+            }
+
             var tolerance = RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
+
+            var expansion = StbMeshAreaLoads.Expand(elements, loads, tolerance);
+            foreach (var warning in expansion.Warnings)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning);
+            }
+
+            foreach (var remark in expansion.Remarks)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, remark);
+            }
+
+            loads = expansion.Loads;
 
             StbAssembleResult assembleResult;
             try

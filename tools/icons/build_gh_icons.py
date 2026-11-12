@@ -48,6 +48,13 @@ COPIES = {
     "ModelContainer": "icons_P_Mdl",
     "ElementContainer": "icons_P_Elem1D",
     "SupportContainer": "icons_P_Sup",
+    "InfoElement": "icons_I_Elem1D",
+    "InfoMaterial": "icons_I_Mat",
+    "InfoSection": "icons_I_Sec",
+    "InfoLoad": "icons_I_Load_P",
+    "InfoSupport": "icons_I_Sup",
+    "InfoModel": "icons_I_Mdl",
+    "InfoNode": "icons_I_Node",
 }
 
 # Reused glyph plus a corner badge.

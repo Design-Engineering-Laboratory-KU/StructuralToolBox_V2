@@ -130,7 +130,32 @@ def render_confirmation_draft_markdown(
     lines.append("- 出力方針: 中間表を優先し、未対応項目は警告または手作業確認として明示")
     wood_settings = project.design_checks.wood
     lines.append("- 木造検定: " + ("有効" if wood_settings.enabled else "無効"))
-    if wood_settings.enabled:
+    if wood_settings.enabled and wood_settings.materials:
+        lines.append("- 検定方式: 許容応力度計算（荷重継続期間・座屈を考慮）")
+        lines.append("")
+        lines.append("### 木材の基準強度 (N/mm2)")
+        lines.append("")
+        lines.extend(_dict_table(
+            ("name", "compression", "tension", "bending", "shear", "bearing"),
+            [
+                {
+                    "name": m.name,
+                    "compression": m.compression,
+                    "tension": m.tension,
+                    "bending": m.bending,
+                    "shear": m.shear,
+                    "bearing": m.bearing,
+                }
+                for m in wood_settings.materials
+            ],
+            {"name": "材料", "compression": "Fc", "tension": "Ft", "bending": "Fb", "shear": "Fs", "bearing": "Fcv"},
+        ))
+        lines.append("")
+        lines.extend(_table([
+            ("検定荷重ケース", ", ".join(str(lc) for lc in wood_settings.load_cases) or "全荷重ケース"),
+        ]))
+    elif wood_settings.enabled:
+        lines.append("- 検定方式: 簡易法（荷重継続期間・座屈は未考慮。申請用の検定には基準強度の設定が必要）")
         lines.append("")
         lines.extend(_table([
             ("曲げ許容応力度 N/mm2", _fmt(wood_settings.allowable_stresses.bending)),
@@ -351,6 +376,8 @@ def render_confirmation_draft_markdown(
             },
         ))
         lines.append("")
+        if wood.tables.standard_sections:
+            lines.extend(_render_standard_wood_tables(wood))
         lines.append("### 耐力壁別")
         lines.append("")
         lines.extend(_dict_table(
@@ -420,6 +447,107 @@ def render_confirmation_draft_markdown(
     lines.append(_overall_comment(wood, warnings))
     lines.append("")
     return "\n".join(lines)
+
+
+def _render_standard_wood_tables(wood):
+    lines = ["### 部材の断面性能・座屈", ""]
+    lines.extend(_dict_table(
+        (
+            "element_id",
+            "section",
+            "material",
+            "area_e_100mm2",
+            "z_y_e_1000mm3",
+            "z_z_e_1000mm3",
+            "radius_min_mm",
+            "lk_y_mm",
+            "lk_z_mm",
+            "slenderness",
+            "eta",
+            "ck",
+            "cs",
+            "cb",
+            "le_mm",
+            "messages",
+        ),
+        wood.tables.standard_sections,
+        {
+            "element_id": "部材",
+            "section": "断面",
+            "material": "材料",
+            "area_e_100mm2": "Ae ×100mm2",
+            "z_y_e_1000mm3": "Zey ×1000mm3",
+            "z_z_e_1000mm3": "Zez ×1000mm3",
+            "radius_min_mm": "i mm",
+            "lk_y_mm": "lky mm",
+            "lk_z_mm": "lkz mm",
+            "slenderness": "λ",
+            "eta": "η",
+            "ck": "Ck",
+            "cs": "Cs",
+            "cb": "Cb",
+            "le_mm": "le mm",
+            "messages": "メッセージ",
+        },
+    ))
+    lines.extend(["", "### 荷重継続期間別の検定", ""])
+    lines.extend(_dict_table(
+        (
+            "element_id",
+            "duration",
+            "load_case",
+            "location",
+            "axial_kn",
+            "moment_y_knm",
+            "moment_z_knm",
+            "shear_kn",
+            "fc",
+            "ft",
+            "fb_y",
+            "fb_z",
+            "fs",
+            "sigma_n",
+            "sigma_by",
+            "sigma_bz",
+            "tau",
+            "sigma_cv",
+            "stress_ratio",
+            "shear_ratio",
+            "bearing_ratio",
+            "deflection_mm",
+            "deflection_ratio",
+            "ratio",
+        ),
+        wood.tables.standard_results,
+        {
+            "element_id": "部材",
+            "duration": "区分",
+            "load_case": "LC",
+            "location": "位置",
+            "axial_kn": "N kN（引張+）",
+            "moment_y_knm": "My kN・m",
+            "moment_z_knm": "Mz kN・m",
+            "shear_kn": "Q kN",
+            "fc": "fc",
+            "ft": "ft",
+            "fb_y": "fby",
+            "fb_z": "fbz",
+            "fs": "fs",
+            "sigma_n": "σn",
+            "sigma_by": "σby",
+            "sigma_bz": "σbz",
+            "tau": "τ",
+            "sigma_cv": "σcv",
+            "stress_ratio": "σ/f",
+            "shear_ratio": "τ/fs",
+            "bearing_ratio": "σcv/fcv",
+            "deflection_mm": "δ mm",
+            "deflection_ratio": "δ比",
+            "ratio": "検定比",
+        },
+    ))
+    lines.append("")
+    return lines
 
 
 def render_confirmation_draft_html(markdown_text, title="Structural Toolbox Report"):

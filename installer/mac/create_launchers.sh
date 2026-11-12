@@ -55,6 +55,54 @@ export PYTHONNOUSERSITE=1
 MODE="$(cat "$(dirname "$0")/../Resources/mode" 2>/dev/null || echo gui)"
 DEST="$HOME/Library/Application Support/StructuralToolbox"
 
+LOG_DIR="$HOME/Library/Logs/StructuralToolbox"
+LOG="$LOG_DIR/stb_gui.log"
+
+alert() {
+  osascript - "$1" <<'APPLESCRIPT' >/dev/null 2>&1 || true
+on run argv
+  display dialog (item 1 of argv) buttons {"OK"} default button 1 with icon caution with title "Structural Toolbox"
+end run
+APPLESCRIPT
+}
+
+if [[ "$MODE" == "gui" ]]; then
+  # ターミナルを開かずに起動する。ログは ~/Library/Logs/StructuralToolbox/stb_gui.log。
+  # 終了はアプリのウィンドウを閉じるだけ（サーバーも止まる）。
+  cd "$DEST" || { alert "インストール先が見つかりません: $DEST"; exit 1; }
+  if [[ ! -x ".venv/bin/stb" ]]; then
+    alert "初回セットアップがまだです。ターミナルで次を実行してください:
+bash \"$DEST/Install_once.command\""
+    exit 1
+  fi
+  mkdir -p "$LOG_DIR"
+  if [[ -f "$LOG" && $(stat -f %z "$LOG" 2>/dev/null || echo 0) -gt 5242880 ]]; then
+    mv -f "$LOG" "$LOG.1"
+  fi
+  printf '\n===== %s Structural Toolbox GUI =====\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
+  nohup ".venv/bin/stb" gui >> "$LOG" 2>&1 < /dev/null &
+  PID=$!
+  # 起動に失敗したときだけ知らせる（ポートが開けば成功とみなしてすぐ終わる）。
+  for _ in $(seq 1 60); do
+    if ! kill -0 "$PID" 2>/dev/null; then
+      wait "$PID"
+      RC=$?
+      if [[ "$RC" -ne 0 && "$RC" -ne 10 ]]; then
+        alert "Structural Toolbox を起動できませんでした（終了コード $RC）。
+ログ: $LOG"
+      fi
+      exit "$RC"
+    fi
+    if /usr/bin/nc -z 127.0.0.1 8765 >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.5
+  done
+  disown "$PID" 2>/dev/null || true
+  exit 0
+fi
+
+# debug: ログを見られるようにターミナルで動かす。
 if [[ "${STB_IN_TERMINAL:-}" != "1" ]]; then
   osascript - "$0" <<'APPLESCRIPT'
 on run argv
@@ -74,7 +122,11 @@ cd "$DEST" || {
   exit 1
 }
 
-if [[ ! -x ".venv/bin/stb" ]]; then
+VENV_PY=".venv/bin/python3"
+if [[ ! -x "$VENV_PY" ]]; then
+  VENV_PY=".venv/bin/python"
+fi
+if [[ ! -x "$VENV_PY" ]]; then
   echo
   echo "[お知らせ] 初回セットアップがまだです。"
   echo "次をターミナルで実行してください:"
@@ -84,35 +136,20 @@ if [[ ! -x ".venv/bin/stb" ]]; then
   exit 1
 fi
 
-echo
+DEBUG_LOG="$DEST/stb_gui.log"
 echo "========================================"
-echo " Structural Toolbox"
+echo " Structural Toolbox - debug mode"
+echo "========================================"
+echo " Log file: $DEBUG_LOG"
+echo " URL: http://127.0.0.1:8765/"
+echo " アプリのウィンドウか、このウィンドウを閉じるとサーバーが止まります。"
 echo "========================================"
 echo
-echo "ブラウザが開きます。"
-echo "このウィンドウは閉じないでください（ログが表示されます）。"
-echo "終了するときはこのウィンドウを閉じてください。"
-echo
-
-if [[ "$MODE" == "debug" ]]; then
-  LOG="$DEST/stb_gui.log"
-  echo "Log file: $LOG"
-  echo "URL: http://127.0.0.1:8765/"
-  VENV_PY=".venv/bin/python3"
-  if [[ ! -x "$VENV_PY" ]]; then
-    VENV_PY=".venv/bin/python"
-  fi
-  "$VENV_PY" -u -m stb_cli gui --log-file "$LOG"
-  RC=$?
-else
-  ".venv/bin/stb" gui
-  RC=$?
-fi
-
+"$VENV_PY" -u -m stb_cli gui --log-file "$DEBUG_LOG"
+RC=$?
 echo
 if [[ "$RC" -eq 10 ]]; then
   echo "[お知らせ] すでに別の画面でサーバーが動いています。"
-  echo "完全に終了するには、そのウィンドウを閉じてから再度起動してください。"
 elif [[ "$RC" -ne 0 ]]; then
   echo "[注意] 終了コード $RC"
 else

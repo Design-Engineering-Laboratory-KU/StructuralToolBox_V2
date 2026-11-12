@@ -297,6 +297,8 @@ namespace StbGrasshopper
         Area,
         Gravity,
         Combination,
+        MeshArea,
+        ElementPoint,
     }
 
     public sealed class StbLoadModel
@@ -314,6 +316,9 @@ namespace StbGrasshopper
         public double T0 { get; set; }
         public double T1 { get; set; } = 1.0;
         public Vector3d Pressure { get; set; }
+        public List<Mesh> Meshes { get; } = new List<Mesh>();
+        public List<string> ElementNames { get; } = new List<string>();
+        public double MeshTolerance { get; set; }
         public Vector3d Acceleration { get; set; }
         public string CombinationName { get; set; } = string.Empty;
         public List<double> CombinationFactors { get; } = new List<double>();
@@ -335,10 +340,13 @@ namespace StbGrasshopper
                 T0 = T0,
                 T1 = T1,
                 Pressure = Pressure,
+                MeshTolerance = MeshTolerance,
                 Acceleration = Acceleration,
                 CombinationName = CombinationName,
             };
             copy.BoundaryLines.AddRange(BoundaryLines);
+            copy.Meshes.AddRange(Meshes);
+            copy.ElementNames.AddRange(ElementNames);
             copy.CombinationFactors.AddRange(CombinationFactors);
             copy.CombinationCases.AddRange(CombinationCases);
             return copy;
@@ -438,6 +446,24 @@ namespace StbGrasshopper
             return record;
         }
 
+        public string ToEpldRecord(int elementId, bool reverse)
+        {
+            return "EPLD,"
+                + elementId
+                + ","
+                + LoadCase
+                + ","
+                + (IsGlobal ? 1 : 0)
+                + ","
+                + StbRecord.Number(Force.X)
+                + ","
+                + StbRecord.Number(Force.Y)
+                + ","
+                + StbRecord.Number(Force.Z)
+                + ","
+                + StbRecord.Number(reverse ? 1.0 - T0 : T0);
+        }
+
         public string ToAlodRecord(IReadOnlyList<int> elementIds)
         {
             if (elementIds == null || elementIds.Count < 3 || elementIds.Count > 4)
@@ -479,8 +505,12 @@ namespace StbGrasshopper
                         + "-"
                         + StbRecord.Number(T1)
                         + "]";
+                case StbLoadKind.ElementPoint:
+                    return "Element point load LC" + LoadCase + " @ T=" + StbRecord.Number(T0);
                 case StbLoadKind.Area:
                     return "Area load LC" + LoadCase;
+                case StbLoadKind.MeshArea:
+                    return "Area load from mesh LC" + LoadCase;
                 case StbLoadKind.Gravity:
                     return "Gravity load LC" + LoadCase + " " + Acceleration;
                 case StbLoadKind.Combination:

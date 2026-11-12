@@ -34,6 +34,7 @@ namespace StbGrasshopper
             pManager.AddIntegerParameter("Node ID", "N", "Node id for each row.", GH_ParamAccess.list);
             pManager.AddVectorParameter("Translation", "U", "Translational displacement vector in meters.", GH_ParamAccess.list);
             pManager.AddVectorParameter("Rotation", "Rot", "Rotational displacement vector in radians.", GH_ParamAccess.list);
+            pManager.AddPointParameter("Initial Points", "Pi", "Undeformed node position in meters for each row.", GH_ParamAccess.list);
         }
 
         protected override void SolveInstance(IGH_DataAccess da)
@@ -51,7 +52,15 @@ namespace StbGrasshopper
             var nodeIds = new List<int>();
             var translations = new List<Vector3d>();
             var rotations = new List<Vector3d>();
+            var initialPoints = new List<object>();
 
+            var nodes = new Dictionary<int, Point3d>();
+            foreach (var node in results.Nodes)
+            {
+                nodes[node.NodeId] = node.Point;
+            }
+
+            var missingNodes = 0;
             foreach (var row in results.Displacements)
             {
                 if (!StbLoadCaseFilter.Matches(loadCase, row.LoadCase))
@@ -63,6 +72,20 @@ namespace StbGrasshopper
                 nodeIds.Add(row.NodeId);
                 translations.Add(new Vector3d(row.X, row.Y, row.Z));
                 rotations.Add(new Vector3d(row.ThetaX, row.ThetaY, row.ThetaZ));
+                if (nodes.TryGetValue(row.NodeId, out var point))
+                {
+                    initialPoints.Add(point);
+                }
+                else
+                {
+                    initialPoints.Add(null);
+                    missingNodes++;
+                }
+            }
+
+            if (missingNodes > 0)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, missingNodes + " row(s) have no node coordinates; their initial point is empty.");
             }
 
             if (loadCase >= 0 && loadCases.Count == 0)
@@ -76,6 +99,7 @@ namespace StbGrasshopper
             da.SetDataList(1, nodeIds);
             da.SetDataList(2, translations);
             da.SetDataList(3, rotations);
+            da.SetDataList(4, initialPoints);
         }
     }
 }

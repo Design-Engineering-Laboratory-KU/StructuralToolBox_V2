@@ -70,6 +70,9 @@ stb solve data/input01.dat -o tests/_tmp_out/input01.out
 # Parse input only (no solve)
 stb validate data/input01.dat -v
 
+# Wood wall-quantity report (壁量計算書, 2025 standard; project.json wall_quantity)
+stb wallcalc data/sample_wall_quantity_2f.project.json -o tests/_tmp_out/wall_quantity.html -v
+
 # Version
 stb version
 

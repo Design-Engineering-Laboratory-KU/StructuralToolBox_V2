@@ -24,7 +24,7 @@ $Version = (Get-Content -LiteralPath (Join-Path $InstallerDir 'PYTHON_EMBED_VERS
 
 $ExcludeDirNames = @(
     '.git', '.venv', '.venv-win', '.venv_win', '.venv_py314_broken',
-    'python-embed', '__pycache__', '.pytest_cache', 'installer', '.idea',
+    'python-embed', '__pycache__', '.pytest_cache', 'installer', 'student', '.idea',
     'tests\_tmp_out', '.vscode', 'structural_toolbox.egg-info'
 )
 $ExcludeFilePatterns = @('*.pyc')
