@@ -430,27 +430,40 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
             data = report_defaults_for_model(None)
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
-    @app.post("/api/report/confirmation")
-    def api_report_confirmation(request: Request, body: dict = Body(...)):
-        """Same as ``stb report <input> -o <output>``; returns where it was written."""
-
+    def _run_report_request(request, body, kind):
         _require_local_origin(request)
         from stb_engine.errors import StbParseError, StbSolveError
-        from stb_gui.report_view import run_confirmation_report
+        from stb_gui.report_view import run_report
+        from stb_reports.pdf import PdfExportError
 
         try:
-            data = run_confirmation_report(
+            data = run_report(
                 body.get("input"),
                 body.get("output"),
                 body.get("format") or None,
+                kind=kind,
             )
         except StbParseError as ex:
             raise HTTPException(status_code=400, detail="Parse error: " + str(ex))
         except StbSolveError as ex:
             raise HTTPException(status_code=400, detail="Analysis error: " + str(ex))
+        except PdfExportError as ex:
+            raise HTTPException(status_code=500, detail=str(ex))
         except (ValueError, IOError) as ex:
             raise HTTPException(status_code=400, detail=str(ex))
         return JSONResponse(data)
+
+    @app.post("/api/report/confirmation")
+    def api_report_confirmation(request: Request, body: dict = Body(...)):
+        """Same as ``stb report <input> -o <output>``; returns where it was written."""
+
+        return _run_report_request(request, body, "confirmation")
+
+    @app.post("/api/report/wall-quantity")
+    def api_report_wall_quantity(request: Request, body: dict = Body(...)):
+        """Same as ``stb wallcalc <input> -o <output>`` (.html / .md / .pdf)."""
+
+        return _run_report_request(request, body, "wall_quantity")
 
     @app.get("/api/report/view")
     def api_report_view(token: str = Query(...)):
@@ -460,9 +473,14 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         out = generated_report_file(token)
         if not out or not os.path.isfile(out):
             raise HTTPException(status_code=404, detail="Report not found (generate it again)")
+        headers = {"Cache-Control": "no-store"}
+        if out.lower().endswith(".pdf"):
+            from urllib.parse import quote
+
+            headers["Content-Disposition"] = "inline; filename*=UTF-8''" + quote(os.path.basename(out))
+            return FileResponse(out, media_type="application/pdf", headers=headers)
         with open(out, "r", encoding="utf-8") as fh:
             text = fh.read()
-        headers = {"Cache-Control": "no-store"}
         if out.lower().endswith(".md"):
             return PlainTextResponse(text, headers=headers)
         return HTMLResponse(text, headers=headers)

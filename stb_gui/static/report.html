@@ -13,8 +13,8 @@
 <body class="loads-verify-body">
   <header class="loads-verify-toolbar">
     <div class="loads-verify-toolbar-left">
-      <h1 class="loads-verify-title">計算書出力（stb report）</h1>
-      <span class="loads-verify-path">解析を実行して確認申請補助計算書を書き出します。</span>
+      <h1 class="loads-verify-title">計算書出力</h1>
+      <span class="loads-verify-path">確認申請補助計算書（stb report）または壁量計算書（stb wallcalc）を書き出します。</span>
     </div>
     <div class="loads-verify-toolbar-right">
       <button type="button" id="btnRpRun" class="btn-primary">計算書を作成</button>
@@ -23,6 +23,12 @@
 
   <main class="loads-verify-main">
     <form id="rpForm" class="rp-form" autocomplete="off">
+      <label class="rp-label" for="rpKind">種類</label>
+      <select id="rpKind" class="rp-select">
+        <option value="confirmation">確認申請補助計算書（解析あり）</option>
+        <option value="wall_quantity">壁量計算書</option>
+      </select>
+
       <label class="rp-label" for="rpInput">入力（.project.json または .dat のフルパス）</label>
       <div class="rp-row">
         <input type="text" id="rpInput" class="rp-input" spellcheck="false"
@@ -31,15 +37,16 @@
       </div>
       <p class="rp-hint">エクスプローラーでファイルを Shift+右クリック →「パスのコピー」で貼り付けられます。Structural Toolbox のフォルダの外（Dropbox など）でも構いません。</p>
 
-      <label class="rp-label" for="rpOutput">出力ファイル（.html または .md、空欄なら入力と同じフォルダの *_report.html）</label>
-      <input type="text" id="rpOutput" class="rp-input" spellcheck="false" placeholder="（自動）">
-
       <label class="rp-label" for="rpFormat">形式</label>
       <select id="rpFormat" class="rp-select">
-        <option value="">拡張子から判断</option>
+        <option value="pdf">PDF</option>
         <option value="html">HTML</option>
         <option value="markdown">Markdown</option>
       </select>
+      <p class="rp-hint">PDF は Microsoft Edge（または Chrome）の印刷機能で作ります。A4、ブラウザで「印刷 / PDF保存」したときと同じ体裁です。</p>
+
+      <label class="rp-label" for="rpOutput">出力ファイル（空欄なら入力と同じフォルダに自動の名前で保存）</label>
+      <input type="text" id="rpOutput" class="rp-input" spellcheck="false" placeholder="（自動）">
     </form>
 
     <section class="lv-section rp-result">

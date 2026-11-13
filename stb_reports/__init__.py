@@ -15,6 +15,7 @@ from stb_reports.wall_quantity_report import (
 from stb_reports.runner import (
     default_report_output_path,
     generate_confirmation_report,
+    generate_wall_quantity_report,
     report_format_for_path,
     resolve_report_input,
 )

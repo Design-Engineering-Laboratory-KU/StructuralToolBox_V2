@@ -2,6 +2,9 @@
   "use strict";
 
   const STORE_KEY = "stb_report_paths_v1";
+  const KIND_SUFFIX = { confirmation: "_report", wall_quantity: "_wallcalc" };
+  const FORMAT_EXT = { html: ".html", markdown: ".md", pdf: ".pdf" };
+  const KIND_ENDPOINT = { confirmation: "/api/report/confirmation", wall_quantity: "/api/report/wall-quantity" };
   const params = new URLSearchParams(window.location.search);
   const modelPath = params.get("path") || "";
 
@@ -10,6 +13,7 @@
     input: document.getElementById("rpInput"),
     output: document.getElementById("rpOutput"),
     format: document.getElementById("rpFormat"),
+    kind: document.getElementById("rpKind"),
     btnRun: document.getElementById("btnRpRun"),
     btnCurrent: document.getElementById("btnRpCurrent"),
     status: document.getElementById("rpStatus"),
@@ -55,6 +59,7 @@
         input: el.input.value,
         output: el.output.value,
         format: el.format.value,
+        kind: el.kind.value,
       }));
     } catch (_) {
       /* storage unavailable */
@@ -94,7 +99,9 @@
       return;
     }
     const m = text.match(/^(.*?)(\.project\.json|\.[^.\\/]+)?$/i);
-    el.output.placeholder = "（自動）" + (m ? m[1] : text) + "_report.html";
+    const suffix = KIND_SUFFIX[el.kind.value] || "_report";
+    const ext = FORMAT_EXT[el.format.value] || ".html";
+    el.output.placeholder = "（自動）" + (m ? m[1] : text) + suffix + ext;
   }
 
   async function fetchDefaults() {
@@ -127,7 +134,7 @@
       setStatus(ex.message, "error");
       return;
     }
-    const w = window.open(url, "stb_confirmation_report", "width=1000,height=900,scrollbars=yes,resizable=yes");
+    const w = window.open(url, "stb_report_view", "width=1000,height=900,scrollbars=yes,resizable=yes");
     if (!w) setStatus("ポップアップがブロックされました。このサイトのポップアップを許可してください。", "error");
   }
 
@@ -141,9 +148,10 @@
     clearResult();
     saveStored();
     el.btnRun.disabled = true;
-    setStatus("解析して計算書を作成しています…");
+    setStatus(el.kind.value === "wall_quantity" ? "壁量計算書を作成しています…" : "解析して計算書を作成しています…");
     try {
-      const res = await fetch(guiApiUrl("/api/report/confirmation"), {
+      const endpoint = KIND_ENDPOINT[el.kind.value] || KIND_ENDPOINT.confirmation;
+      const res = await fetch(guiApiUrl(endpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -158,7 +166,8 @@
       el.outPath.textContent = data.output;
       el.openRow.hidden = false;
       renderWarnings(data.warnings);
-      setStatus("計算書を書き出しました（警告 " + (data.warnings || []).length + " 件）。", "ok");
+      const judged = data.status ? "判定 " + data.status + "、" : "";
+      setStatus("計算書を書き出しました（" + judged + "警告 " + (data.warnings || []).length + " 件）。", "ok");
       openReport();
     } catch (ex) {
       setStatus("計算書を作成できませんでした: " + ex.message, "error");
@@ -171,6 +180,14 @@
   el.btnOpen.addEventListener("click", openReport);
   el.btnCurrent.addEventListener("click", applyModelDefaults);
   el.input.addEventListener("input", updateOutputPlaceholder);
+  el.kind.addEventListener("change", updateOutputPlaceholder);
+  el.format.addEventListener("change", () => {
+    // Keep a typed output name in step with the chosen format.
+    const ext = FORMAT_EXT[el.format.value];
+    const out = el.output.value.trim();
+    if (ext && out) el.output.value = out.replace(/\.(html?|md|pdf)("?)$/i, ext + "$2");
+    updateOutputPlaceholder();
+  });
   el.form.addEventListener("submit", (ev) => {
     ev.preventDefault();
     runReport();
@@ -190,7 +207,8 @@
     if (stored && stored.input) {
       el.input.value = stored.input;
       el.output.value = stored.output || "";
-      el.format.value = stored.format || "";
+      if (stored.format && FORMAT_EXT[stored.format]) el.format.value = stored.format;
+      if (stored.kind && KIND_SUFFIX[stored.kind]) el.kind.value = stored.kind;
     } else if (modelDefaults && modelDefaults.input_exists) {
       el.input.value = modelDefaults.input;
     }

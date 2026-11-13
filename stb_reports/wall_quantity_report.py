@@ -514,7 +514,7 @@ figcaption {{ font-size: 9pt; color: var(--muted); margin-top: 4px; }}
 @media print {{
   body {{ background: #fff; }} .toolbar {{ display: none; }}
   .sheet {{ box-shadow: none; margin: 0; padding: 0; max-width: none; }}
-  .page-break {{ break-after: page; }}
+  .page-break {{ display: none; }} .page-break + * {{ break-before: page; }}
   tr, figure {{ break-inside: avoid; }} .table-wrap {{ overflow: visible; }}
 }}
 </style>

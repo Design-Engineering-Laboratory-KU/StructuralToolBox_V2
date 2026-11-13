@@ -11,6 +11,7 @@ if _STB_ROOT not in sys.path:
 from stb_reports import default_report_output_path
 
 _SAMPLE = "practice_wood_single_story"
+_WALL_SAMPLE = "sample_wall_quantity_2f"
 
 
 def _data_path(name):
@@ -28,6 +29,10 @@ class TestDefaultReportOutputPath(unittest.TestCase):
         self.assertEqual(
             default_report_output_path(os.path.join(folder, "a.dat")),
             os.path.join(folder, "a_report.html"),
+        )
+        self.assertEqual(
+            default_report_output_path(os.path.join(folder, "a.project.json"), kind="wall_quantity", output_format="pdf"),
+            os.path.join(folder, "a_wallcalc.pdf"),
         )
 
 
@@ -74,6 +79,41 @@ class TestGuiReportApi(unittest.TestCase):
         self.assertEqual(res.json()["format"], "markdown")
         with open(out, encoding="utf-8") as fh:
             self.assertIn("## 8. 木造梁・柱・筋かいの基本検定", fh.read())
+
+    def test_wall_quantity_html(self):
+        for ext in (".dat", ".project.json"):
+            shutil.copy(_data_path(_WALL_SAMPLE + ext), os.path.join(self.tmp, _WALL_SAMPLE + ext))
+        project = os.path.join(self.tmp, _WALL_SAMPLE + ".project.json")
+        res = self.client.post("/api/report/wall-quantity", json={"input": project, "format": "html"})
+        self.assertEqual(res.status_code, 200, res.text)
+        data = res.json()
+        self.assertEqual(data["output"], os.path.join(self.tmp, _WALL_SAMPLE + "_wallcalc.html"))
+        self.assertEqual(data["kind"], "wall_quantity")
+        self.assertIn(data["status"], ("OK", "NG", "WARN"))
+        view = self.client.get("/api/report/view", params={"token": data["token"]})
+        self.assertIn("壁量", view.text)
+
+    def test_wall_quantity_pdf(self):
+        from stb_reports.pdf import find_pdf_browser
+
+        if find_pdf_browser() is None:
+            self.skipTest("no Edge/Chrome for PDF export")
+        for ext in (".dat", ".project.json"):
+            shutil.copy(_data_path(_WALL_SAMPLE + ext), os.path.join(self.tmp, _WALL_SAMPLE + ext))
+        project = os.path.join(self.tmp, _WALL_SAMPLE + ".project.json")
+        res = self.client.post("/api/report/wall-quantity", json={"input": project, "format": "pdf"})
+        self.assertEqual(res.status_code, 200, res.text)
+        out = res.json()["output"]
+        self.assertTrue(out.endswith("_wallcalc.pdf"))
+        with open(out, "rb") as fh:
+            self.assertEqual(fh.read(5), b"%PDF-")
+        view = self.client.get("/api/report/view", params={"token": res.json()["token"]})
+        self.assertEqual(view.headers["content-type"], "application/pdf")
+
+    def test_wall_quantity_requires_settings(self):
+        res = self.client.post("/api/report/wall-quantity", json={"input": self.project})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("wall_quantity", res.json()["detail"])
 
     def test_rejects_bad_requests(self):
         cases = [
