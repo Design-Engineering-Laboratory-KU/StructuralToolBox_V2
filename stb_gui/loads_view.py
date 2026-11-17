@@ -15,7 +15,7 @@ from stb_loads.equilibrium import invalidate_solved_model_cache
 from stb_loads.format import build_seismic_report_view
 from stb_loads.gravity_format import build_dead_load_report, build_live_load_report
 from stb_loads.wind_format import build_wind_report_view
-from stb_gui.model_json import normalize_model_relpath, project_root, resolve_model_path
+from stb_gui.model_json import model_display_path, normalize_model_relpath, project_root, resolve_model_path
 from stb_gui.model_session import get_model_and_project, invalidate_model_session
 from stb_project import project_path_for_dat
 
@@ -38,7 +38,7 @@ def _load_model_and_project(dat_relpath: str, mdl=None, project=None):
 
 
 def _project_rel_path(full: str) -> str:
-    return os.path.relpath(project_path_for_dat(full), project_root()).replace("\\", "/")
+    return model_display_path(project_path_for_dat(full))
 
 
 def _base_view_fields(kind: str, title: str, active_tab: str, dat_relpath: str, full: str) -> Dict[str, Any]:

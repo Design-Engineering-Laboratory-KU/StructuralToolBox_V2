@@ -25,7 +25,7 @@ from stb_engine import parse_input
 from stb_gui.dat_edit import validate_dat_text
 from stb_gui.dat_format_headers import write_dat_text
 from stb_gui.project_edit import build_project_edit_form
-from stb_gui.model_json import normalize_model_relpath, project_root, resolve_model_path
+from stb_gui.model_json import model_display_path, normalize_model_relpath, project_root, resolve_model_path
 
 
 _MEMBER_KIND_LABELS = {
@@ -51,7 +51,7 @@ def project_relpath_for_model(dat_relpath: str) -> Optional[str]:
     if not dat_relpath:
         return None
     full = resolve_model_path(dat_relpath)
-    rel = os.path.relpath(project_path_for_dat(full), project_root()).replace("\\", "/")
+    rel = model_display_path(project_path_for_dat(full))
     return rel
 
 
@@ -143,7 +143,7 @@ def load_project_view_for_model(dat_relpath: str) -> Dict[str, Any]:
     dat_relpath = normalize_model_relpath(dat_relpath)
     full = resolve_model_path(dat_relpath)
     project_path = project_path_for_dat(full)
-    project_rel = os.path.relpath(project_path, project_root()).replace("\\", "/")
+    project_rel = model_display_path(project_path)
 
     if not os.path.isfile(project_path):
         return {

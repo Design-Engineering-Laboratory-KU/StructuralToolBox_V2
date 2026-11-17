@@ -314,12 +314,28 @@ class Elm1D:
 
         return tm
 
+    def axial_rigidity(self):
+        """EA [N] of the member in series with the EJNT axial end springs.
+
+        The end springs Ni, Nj [N/m] act in series with the bar, so the axial
+        stiffness is 1 / (L/EA + 1/Ni + 1/Nj); the result is returned as an
+        equivalent EA so that EA/L gives that stiffness.
+        """
+
+        ea = self.sec.mat.E * self.sec.A
+        jnt = self.jnt
+        flexibility = self.len / ea
+        for spring in (getattr(jnt, "ni", None), getattr(jnt, "nj", None)):
+            if spring is not None:
+                flexibility += 1.0 / spring
+        return self.len / flexibility
+
     def SS0_ElmStiffMX(self):
 
         esm  = np.zeros((12, 12), dtype = np.float64)
 
         L    = self.len                     #         # m
-        EA   = self.sec.mat.E * self.sec.A  #         # N/mm2 * mm2 = N 
+        EA   = self.axial_rigidity()        # N, with EJNT axial springs
         EIy  = self.sec.mat.E * self.sec.Iy #* 1e-6   # N/mm2 * mm4 * 1e-6 = Nm2
         EIz  = self.sec.mat.E * self.sec.Iz #* 1e-6   # N/mm2 * mm4 * 1e-6 = Nm2
         GJ   = self.sec.mat.G * self.sec.J  #* 1e-6   # N/mm2 * mm4 * 1e-6 = Nm2
@@ -388,7 +404,7 @@ class Elm1D:
             raise RuntimeError("Element {0} has no joint definition".format(self.id))
 
         L    = self.len                     #         # m
-        EA   = self.sec.mat.E * self.sec.A  #         # N/mm2 * mm2 = N 
+        EA   = self.axial_rigidity()        # N, with EJNT axial springs
         EIy  = self.sec.mat.E * self.sec.Iy #* 1e-6   # N/mm2 * mm4 * 1e-6 = Nm2
         EIz  = self.sec.mat.E * self.sec.Iz #* 1e-6   # N/mm2 * mm4 * 1e-6 = Nm2
         GJ   = self.sec.mat.G * self.sec.J  #* 1e-6   # N/mm2 * mm4 * 1e-6 = Nm2
@@ -520,7 +536,7 @@ class Elm1D:
                 raise RuntimeError("Element {0} has no joint definition".format(e.id))
             mat = e.sec.mat
             L[k]   = e.len
-            EA[k]  = mat.E * e.sec.A
+            EA[k]  = e.axial_rigidity()
             EIy[k] = mat.E * e.sec.Iy
             EIz[k] = mat.E * e.sec.Iz
             GJ[k]  = mat.G * e.sec.J

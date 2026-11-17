@@ -85,13 +85,13 @@ DLOD_WGHT_FMTS = DLOD_MASS_FMTS
 DLOD_AREA_NAMES = ["DIAP", "LC", "TYPE", "PX", "PY"]
 DLOD_AREA_UNITS = ["", "", "", "kN/m2", "kN/m2"]
 
-WWLL_FMTS = [">6", ">10", ">4", ">8", ">8", ">8", ">4", ">14", ">6", ">6", ">6", ">6", ">6", ">4"]
-WWLL_NAMES = ["ID", "NAME", "MODEL", "M", "L", "H", "DIR", "RA", "N1", "N2", "N3", "N4", "DIAP", "LAYO"]
-WWLL_UNITS = ["", "", "", "-", "m", "m", "", "rad", "", "", "", "", "", ""]
+WWLL_FMTS = [">6", ">10", ">4", ">8", ">8", ">8", ">4", ">14", ">6", ">6", ">6", ">6", ">6", ">4", ">4", ">6"]
+WWLL_NAMES = ["ID", "NAME", "MODEL", "M", "L", "H", "DIR", "RA", "N1", "N2", "N3", "N4", "DIAP", "LAYO", "MAT", "T"]
+WWLL_UNITS = ["", "", "", "-", "m", "m", "", "rad", "", "", "", "", "", "", "", "mm"]
 
-EJNT_FMTS = [">6", ">10", ">10", ">10", ">10"]
-EJNT_NAMES = ["ELEM", "Ryi", "Rzi", "Ryj", "Rzj"]
-EJNT_UNITS = ["", "kNm/rad", "kNm/rad", "kNm/rad", "kNm/rad"]
+EJNT_FMTS = [">6", ">10", ">10", ">10", ">10", ">10", ">10"]
+EJNT_NAMES = ["ELEM", "Ryi", "Rzi", "Ryj", "Rzj", "Ni", "Nj"]
+EJNT_UNITS = ["", "kNm/rad", "kNm/rad", "kNm/rad", "kNm/rad", "kN/mm", "kN/mm"]
 
 CONS_FMTS = [">6", ">4", ">4", ">4", ">4", ">4", ">4"]
 CONS_NAMES = ["NODE", "TX", "TY", "TZ", "RX", "RY", "RZ"]
@@ -223,7 +223,8 @@ SECTION_HEADERS: dict[str, list[str]] = {
         header_line("WWLL", WWLL_FMTS, WWLL_NAMES),
         unit_line("WWLL", WWLL_FMTS, WWLL_UNITS),
         *_notes(
-            "#   MODEL: 0=equivalent brace  1=shear panel  2=membrane(reserved)",
+            "#   MODEL: 0=equivalent brace  1=shear panel  2=membrane(reserved)  3=wall element",
+            "#   MAT, T: panel material and thickness (MODEL=3 only)",
             "#   DIR: 0=X  1=Y",
             "#   N1..N4: corner nodes (bottom line N1-N2, top line N3-N4)",
             "#   DIAP: diaphragm ID for in-plane MPC tie (blank=none)",
@@ -234,7 +235,8 @@ SECTION_HEADERS: dict[str, list[str]] = {
         "# --- ELEMENT JOINT(EJNT) ---",
         header_line("EJNT", EJNT_FMTS, EJNT_NAMES),
         unit_line("EJNT", EJNT_FMTS, EJNT_UNITS),
-        *_notes("#   blank field = default rigid offset"),
+        *_notes("#   blank field = default rigid offset",
+                "#   Ni, Nj: axial end springs in series with the member (blank = rigid)"),
     ],
     "CONS": [
         "# --- CONSTRAINT(CONS) ---",
@@ -314,7 +316,7 @@ def example_line(key: str) -> str:
         "DCON": record_line("DCON", DCON_FMTS, [1, 1, 0, 0, 0.01, ""]),
         "DLOD": record_line("DLOD", DLOD_AREA_FMTS, [1, 1, 0, 1.0, 0.0]),
         "WWLL": record_line("WWLL", WWLL_FMTS, [1, "W1_X", 0, 2.0, 1.82, 2.73, 0, 0.0083333333, 11, 12, 22, 21, 10, 1]),
-        "EJNT": record_line("EJNT", EJNT_FMTS, [0, 0.0, "", "", 0.0]),
+        "EJNT": record_line("EJNT", EJNT_FMTS, [0, 0.0, "", "", 0.0, "", ""]),
         "CONS": record_line("CONS", CONS_FMTS, [0, 1, 1, 1, 1, 1, 1]),
         "LNME": record_line("LNME", [">6", ">4"], [1, 1]),
         "LCMB": record_line("LCMB", [">6", ">10", ">6", ">6", ">6", ">6"], [2, "EX(+)", 2.0, 0, 1.0, 1]),

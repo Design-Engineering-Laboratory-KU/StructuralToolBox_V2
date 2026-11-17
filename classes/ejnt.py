@@ -8,9 +8,16 @@ class EJnt:
 
     def __init__(self, 
                  _eid, 
-                 _jnts):
+                 _jnts,
+                 _axial=(None, None)):
     
         self.eid = _eid
+
+        # Axial end springs [N/m] in series with the member; None = rigid.
+        self.ni, self.nj = _axial
+        for spring in (self.ni, self.nj):
+            if spring is not None and spring <= 0.0:
+                raise ValueError("EJNT {0}: axial spring must be positive".format(_eid))
         
         # self.Txi = _jnts[0]
         # self.Tyi = _jnts[1]
@@ -58,6 +65,10 @@ class EJnt:
                 val = j * 1e-3
 
             props.append("{0: >8}".format(val))
+
+        if self.ni is not None or self.nj is not None:
+            for spring in (self.ni, self.nj):
+                props.append("{0: >8}".format("" if spring is None else spring * 1e-6))
 
         lns = ', '.join(props) + "\n"
 

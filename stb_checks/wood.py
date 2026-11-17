@@ -628,6 +628,12 @@ def _wall_shear_for_load_case(mdl, w, lc, load_case_indices, warnings):
             warnings.append("WOOD_RATED_WALL {0} has no SHEAR_PANEL record.".format(w.id))
             return 0.0
         return sum([_shear_panel_force(sp, clc) for sp in panels])
+    if model == "WALL_ELEMENT":
+        elements = [we for we in getattr(mdl, "wwelems", []) or [] if getattr(we, "wall_id", None) == w.id]
+        if not elements:
+            warnings.append("WOOD_RATED_WALL {0} has no WALL_ELEMENT record.".format(w.id))
+            return 0.0
+        return sum([_shear_panel_force(we, clc) for we in elements])
     return _wall_shear_from_equivalent_braces(mdl, w, clc, warnings)
 
 

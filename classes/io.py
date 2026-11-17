@@ -25,6 +25,7 @@ from diaphragm import (
 from wood_wall import (
     WoodRatedWall,
     WOOD_WALL_MODEL_SHEAR_PANEL,
+    WOOD_WALL_MODEL_ELEMENT,
     WWLL_LAYO_X,
     wwll_model_from_code, wwll_dir_from_code, wwll_layo_from_code,
 )
@@ -107,6 +108,7 @@ def ReadLines(_lns):
     dloads = []
     wwalls = []
     wshears = []
+    wwelems = []
     dmem_specs = []
     nds_by_id = {}
     elms_by_id = {}
@@ -206,7 +208,11 @@ def ReadLines(_lns):
                 except ValueError:
                     jnts[i] = None  
 
-            ejnts.append(EJnt(eid, jnts))
+            axial = tuple(
+                None if v is None else v * 1e6  # [kN/mm] -> [N/m]
+                for v in (_opt_float(items, 6), _opt_float(items, 7))
+            )
+            ejnts.append(EJnt(eid, jnts, axial))
 
         elif key == "DIAP":
 
@@ -354,10 +360,13 @@ def ReadLines(_lns):
             diap_id = _opt_int(items, 13)
             layo = _opt_int(items, 14, WWLL_LAYO_X)
             brace_layout = wwll_layo_from_code(layo)
+            panel_mat = _opt_int(items, 15)
+            panel_t = _opt_float(items, 16)
 
             wwalls.append(WoodRatedWall(
                 wid, name, multiplier, length, height, direction, ra, model,
-                n1, n2, n3, n4, brace_layout, diap_id, common.PRES_LEN
+                n1, n2, n3, n4, brace_layout, diap_id, common.PRES_LEN,
+                panel_mat, None if panel_t is None else panel_t * 1e-3,
             ))
 
         elif key == "CONS":
@@ -543,10 +552,14 @@ def ReadLines(_lns):
     for w in wwalls:
         if w.model_requested == WOOD_WALL_MODEL_SHEAR_PANEL:
             w.generate_shear_panel(nds, wshears, dcons)
+        elif w.model_requested == WOOD_WALL_MODEL_ELEMENT:
+            w.generate_wall_element(nds, mats, secs, elms, ejnts, wwelems, dcons)
         else:
             w.generate_mvp_equivalent_braces(nds, mats, secs, elms, ejnts, dcons)
 
-    input_warnings.extend(_shear_panel_warnings(wshears, elms, cons, nds_by_id))
+    for node in nds:
+        nds_by_id.setdefault(node.id, node)
+    input_warnings.extend(_shear_panel_warnings(list(wshears) + list(wwelems), elms, cons, nds_by_id))
 
     date_input = str(datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
                      
@@ -556,11 +569,14 @@ def ReadLines(_lns):
         dmats, diaps, dregs, dopns, dmems, dcons, dloads, wwalls, wshears,
         input_warnings
     )
+    mdl.wwelems = wwelems
 
     return mdl
 
 def _shear_panel_warnings(wshears, elms, cons, nodes_by_id):
-    connected = {id(e.n0) for e in elms} | {id(e.n1) for e in elms}
+    # Members generated for the walls themselves do not hold the corners in place.
+    own = [e for e in elms if getattr(e, "generated_from", None) != "WOOD_RATED_WALL"]
+    connected = {id(e.n0) for e in own} | {id(e.n1) for e in own}
     vertically_fixed = {id(nodes_by_id[c.nid]) for c in cons if c.csts[2] and c.nid in nodes_by_id}
     warnings = []
     for panel in wshears:
@@ -581,7 +597,7 @@ def _shear_panel_warnings(wshears, elms, cons, nodes_by_id):
 
 def RegisterInputData(_mdl: Mdl):
     
-    nds  = sorted(_mdl_items(_mdl.nds),   key=lambda n: n.id)
+    nds  = sorted([n for n in _mdl_items(_mdl.nds) if not getattr(n, "auto_generated", False)], key=lambda n: n.id)
     elms = sorted([e for e in _mdl_items(_mdl.elms) if not getattr(e, "auto_generated", False)], key=lambda e: e.id)
     ejnts= sorted([e for e in _mdl_items(_mdl.ejnts) if not getattr(e, "auto_generated", False)], key=lambda e: e.eid)
     mats = sorted([m for m in _mdl_items(_mdl.mats) if not getattr(m, "auto_generated", False)], key=lambda m: m.id)

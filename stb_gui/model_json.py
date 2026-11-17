@@ -204,26 +204,57 @@ def _area_load_element_load_entries(mdl):
     return entries
 
 
+# Absolute paths to .dat files anywhere on this computer may be opened in place.
+# The server turns this off when it listens on a non-loopback address.
+ALLOW_EXTERNAL_MODELS = True
+
+
+def set_external_models_allowed(allowed):
+    global ALLOW_EXTERNAL_MODELS
+    ALLOW_EXTERNAL_MODELS = bool(allowed)
+
+
 def resolve_model_path(path):
-    """Resolve path under project root; reject paths outside the tree."""
+    """Resolve a model path to an absolute file name.
+
+    Relative paths are taken under the project root and may not leave it.
+    Absolute paths may point anywhere (the file is opened where it is) but
+    must name an existing .dat file.
+    """
 
     path = normalize_model_relpath(path)
     if path == None or path == "":
         raise ValueError("Model path is empty")
 
     root = os.path.realpath(project_root())
+    inside = True
     if os.path.isabs(path):
         full = os.path.realpath(path)
+        inside = full.startswith(root + os.sep)
+        if not inside:
+            if not ALLOW_EXTERNAL_MODELS:
+                raise ValueError("Model path must be inside the project: " + path)
+            if not full.lower().endswith(".dat"):
+                raise ValueError("Model file must be a .dat file: " + path)
     else:
         full = os.path.realpath(os.path.join(root, path))
-
-    if not full.startswith(root + os.sep) and full != root:
-        raise ValueError("Model path must be inside the project: " + path)
+        if not full.startswith(root + os.sep) and full != root:
+            raise ValueError("Model path must be inside the project: " + path)
 
     if not os.path.isfile(full):
         raise ValueError("Model file not found: " + path)
 
     return full
+
+
+def model_display_path(full):
+    """Path the GUI uses for a file: relative under the project root, else absolute."""
+
+    root = os.path.realpath(project_root())
+    real = os.path.realpath(full)
+    if real.startswith(root + os.sep):
+        return os.path.relpath(real, root).replace("\\", "/")
+    return real.replace("\\", "/")
 
 
 def list_model_files():
@@ -321,6 +352,8 @@ def mdl_to_dict(mdl, relpath=None, solved=False):
             "y": n.y,
             "z": n.z,
         }
+        if getattr(n, "auto_generated", False):
+            item["auto_generated"] = True
         if solved and n.disps is not None and mdl.lcs != None:
             item["disps"] = {}
             for i in range(len(mdl.lcs)):
@@ -562,6 +595,17 @@ def mdl_to_dict(mdl, relpath=None, solved=False):
             "direction": sp.direction,
             "k_n_per_m": float(sp.k),
         })
+    for we in getattr(mdl, "wwelems", []):
+        wood_shear_panels.append({
+            "id": we.id,
+            "wall_id": we.wall_id,
+            "name": we.name,
+            "nodes": [we.n1.id, we.n2.id, we.n3.id, we.n4.id],
+            "direction": we.direction,
+            "k_n_per_m": float(we.k),
+            "model": "WALL_ELEMENT",
+            "wall_column_id": we.column.id,
+        })
 
     membrane_elements = []
     for m in getattr(mdl, "dmems", []):
@@ -707,7 +751,7 @@ def load_model_dict(path, solve=False, quiet=True, use_cached=True):
     """Parse (and optionally solve) a model file; return dict for JSON."""
 
     mdl, full = _load_mdl(path, solve=solve, quiet=quiet)
-    relpath = os.path.relpath(full, project_root()).replace("\\", "/")
+    relpath = model_display_path(full)
     solved = bool(solve)
     if not solve and use_cached:
         from stb_loads.equilibrium import get_cached_solved_model

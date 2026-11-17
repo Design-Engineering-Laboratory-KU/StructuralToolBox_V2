@@ -113,12 +113,18 @@ ELEM, ID, NODE_I, NODE_J, SEC_ID, BETA
 ### `EJNT` — element end releases / springs (optional)
 
 ```
-EJNT, ELEM_ID, Ryi, Rzi, Ryj, Rzj
+EJNT, ELEM_ID, Ryi, Rzi, Ryj, Rzj[, Ni, Nj]
 ```
 
 | Field | Unit | Description |
 |-------|------|-------------|
 | Ryi, Rzi, Ryj, Rzj | kNm/rad | Rotational spring at ends; empty field = use built-in default |
+| Ni, Nj | kN/mm | Axial spring at ends (optional); empty field = rigid. Must be positive |
+
+The axial springs act in series with the member, so its axial stiffness becomes
+`1 / (L/EA + 1/Ni + 1/Nj)`. Use them for joint hardware with a given axial stiffness,
+for example the 0.01 kN/mm that ASTIM assigns to column hardware, which leaves the
+columns almost free axially.
 
 If no `EJNT` line exists for an element, default joint stiffness is assigned in the model builder.
 
@@ -380,12 +386,12 @@ DLOD,  1, 1, 4, 3.0, 1.0, 0.0
 ### `WWLL` — wood rated wall (multiplier input)
 
 ```
-WWLL, ID, NAME, MODEL, M, L, H, DIR, RA, N1, N2, N3, N4, DIAP, LAYO
+WWLL, ID, NAME, MODEL, M, L, H, DIR, RA, N1, N2, N3, N4, DIAP, LAYO[, MAT, T]
 ```
 
 | Col | Unit | Description |
 |-----|------|-------------|
-| MODEL | — | `0` = equivalent brace, `1` = shear panel, `2` = membrane (reserved) |
+| MODEL | — | `0` = equivalent brace, `1` = shear panel, `2` = membrane (reserved), `3` = wall element |
 | M | — | Wall multiplier |
 | L, H | m | Wall length and height for conversion (optional; derived from N1..N4 when blank) |
 | DIR | — | `0` = X, `1` = Y |
@@ -393,6 +399,8 @@ WWLL, ID, NAME, MODEL, M, L, H, DIR, RA, N1, N2, N3, N4, DIAP, LAYO
 | N1..N4 | — | Corner node IDs (bottom line, then top line) |
 | DIAP | — | Diaphragm ID for in-plane MPC tie to the wall line (blank = none) |
 | LAYO | — | Brace layout: `0` = single brace, `1` = X-brace pair (default) |
+| MAT | — | Panel material (`MATE` id); required for `MODEL=3` |
+| T | mm | Total panel thickness (both faces added for a wall panelled on both sides); required for `MODEL=3` |
 
 The parser converts wall multiplier to allowable shear and stiffness:
 
@@ -421,6 +429,25 @@ where `a` runs along the bottom edge and `b` lies in the panel plane perpendicul
 (vertical for a wall). The panel acts along its own edge, and each column at the wall ends carries the full
 overturning force `Q*H/L` over its height. Every corner node needs a member or a vertical support. `DIR` is
 kept for reporting; a warning is issued when it differs from the wall line.
+
+For `MODEL=3`, the wall is replaced by a wall element as in ASTIM (manual 2.3.5, method a).
+A wall column runs between the mid points of the bottom and top edges. Rigid arms join it
+to the corner nodes; they are rigid at the wall column and pinned at the corners. The wall
+column uses the panel material `MAT` with
+
+```
+A  = t L
+I  = alpha * t L^3 / 12
+As = alpha * t L          (kappa = 1)
+alpha = K (H^3 / (12 E I0) + H / (G As0)),   I0 = t L^3 / 12,  As0 = t L
+```
+
+so bending (fixed-fixed) plus shear deformation of the wall column gives the rated stiffness
+`K`. Out of plane the wall column is given 1/1000 of `I`. Unlike `MODEL=1`, the wall carries
+axial force and bending: vertical load and the overturning moment are shared between the wall
+and the end columns according to their stiffness. The generated nodes, members and
+material are not written back to the input file. The wall shear used in the checks is the
+in-plane shear of the wall column.
 
 Users input rated-wall properties (`M, DIR, RA`) and corner nodes (`N1..N4`).
 `L` and `H` may be omitted; they are then computed from the node rectangle

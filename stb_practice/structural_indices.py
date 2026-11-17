@@ -13,6 +13,7 @@ ECCENTRICITY_ROUTE_LIMIT = 0.15
 RIGIDITY_ROUTE2_LIMIT = 0.6
 LATERAL_MEMBER_KINDS = ("lateral_resisting_element", "column", "brace", "wall")
 SHEAR_PANEL_ELEM_ID_BASE = 900_000
+WALL_ELEMENT_ID_OFFSET = 50_000  # WWLL MODEL=3 rows, kept apart from MODEL=1 panel ids
 
 
 @dataclass(frozen=True)
@@ -132,7 +133,7 @@ def build_structural_indices(mdl, project) -> StructuralIndicesResult:
     rigidity_rows = _build_rigidity_ratio_rows(project, stories, drift_rows, lateral_cases)
 
     _append_limit_warnings(project, drift_rows, eccentricity_rows, rigidity_rows, warnings)
-    if not vertical_members and not getattr(mdl, "wshears", None):
+    if not vertical_members and not _rated_wall_panels(mdl):
         warnings.append("No vertical lateral members were available for structural indices.")
     if not lateral_cases:
         warnings.append("No X/Y lateral load cases were available for structural indices.")
@@ -239,8 +240,10 @@ def _vertical_lateral_members(mdl, project, stories: Sequence[StoryIndex], warni
             class_by_element_id[int(eid)] = mc
 
     if not class_by_element_id:
+        # Wall columns generated for WWLL MODEL=3 are counted through the wall itself.
+        wall_columns = {id(we.column) for we in getattr(mdl, "wwelems", []) or []}
         for e in getattr(mdl, "elms", []) or []:
-            if _is_vertical_member(e):
+            if _is_vertical_member(e) and id(e) not in wall_columns:
                 class_by_element_id[int(e.id)] = None
         if class_by_element_id:
             warnings.append("No lateral member classes were defined; vertical members were used as lateral members.")
@@ -458,10 +461,15 @@ def _story_for_shear_panel(panel, stories: Sequence[StoryIndex]) -> str:
     return _story_for_z_midpoint(z_mid, stories)
 
 
+def _rated_wall_panels(mdl):
+    """Shear panels (WWLL MODEL=1) and wall elements (MODEL=3), which share one reporting view."""
+    return list(getattr(mdl, "wshears", []) or []) + list(getattr(mdl, "wwelems", []) or [])
+
+
 def _build_shear_panel_stiffness_rows(mdl, stories: Sequence[StoryIndex]) -> List[MemberStiffnessRow]:
-    """Rated-wall shear panels (WWLL MODEL=1) as directional spring stiffness at panel centroid."""
+    """Rated walls (WWLL MODEL=1 and 3) as directional spring stiffness K at the wall centroid."""
     rows: List[MemberStiffnessRow] = []
-    for panel in getattr(mdl, "wshears", []) or []:
+    for panel in _rated_wall_panels(mdl):
         story_name = _story_for_shear_panel(panel, stories)
         if not story_name:
             continue
@@ -481,7 +489,7 @@ def _build_shear_panel_stiffness_rows(mdl, stories: Sequence[StoryIndex]) -> Lis
             member_class = "shear_panel ({0})".format(label)
         rows.append(MemberStiffnessRow(
             story=story_name,
-            element_id=SHEAR_PANEL_ELEM_ID_BASE + int(panel.id),
+            element_id=SHEAR_PANEL_ELEM_ID_BASE + (WALL_ELEMENT_ID_OFFSET if hasattr(panel, "column") else 0) + int(panel.id),
             member_class=member_class,
             x=x,
             y=y,

@@ -298,14 +298,57 @@ def _seismic_section(ctx):
     )
 
 
+_WALL_MODEL_NAMES = {
+    "EQUIVALENT_BRACE": "等価ブレース",
+    "SHEAR_PANEL": "せん断パネル",
+    "WALL_ELEMENT": "壁エレメント",
+}
+
+
+def _wall_stiffness_section(mdl):
+    walls = sorted(getattr(mdl, "wwalls", []) or [], key=lambda w: w.id)
+    if not walls:
+        return []
+    mats = {m.id: m for m in mdl.mats}
+    rows = []
+    for w in walls:
+        model = str(getattr(w, "model_active", w.model_requested)).upper()
+        cells = [
+            str(w.id), w.name, _WALL_MODEL_NAMES.get(model, model), w.direction,
+            fmt(w.multiplier, 2), fmt(w.length * 1.0e3, 0), fmt(w.height * 1.0e3, 0), fmt(w.k_n_per_m * 1.0e-3, 0),
+        ]
+        mat = mats.get(getattr(w, "panel_mat_id", None))
+        if model == "WALL_ELEMENT" and mat is not None:
+            area, inertia, shear_area, alpha = w.wall_element_properties(mat)
+            cells += [fmt(area * 1.0e6, 0), "{0:.4e}".format(inertia * 1.0e12), fmt(shear_area * 1.0e6, 0), fmt(alpha, 3)]
+        else:
+            cells += ["-", "-", "-", "-"]
+        rows.append(tuple(cells))
+    blocks = [
+        Heading(2, "5.3 耐力壁の剛性"),
+        Text("K = 1.96·倍率·L / (RA·H)。壁エレメントは壁中央の壁柱を剛体で柱位置の節点にピン接合し、"
+             "A = t·L、I = α·t·L³/12、As = α·t·L（α = K(H³/(12EI₀) + H/(GAs₀))）とする。"),
+        Table(
+            columns=(Column("番号"), Column("名称"), Column("モデル"), Column("方向"), Column("倍率"), Column("L\n(mm)"),
+                     Column("H\n(mm)"), Column("K\n(N/mm)"), Column("A\n(mm2)"), Column("I\n(mm4)"),
+                     Column("As\n(mm2)"), Column("α")),
+            rows=tuple(rows),
+            font_size=6.5,
+        ),
+    ]
+    return blocks
+
+
 def chapter_preparation(ctx):
     mdl = ctx.mdl
+    real_nodes = [n for n in mdl.nds if not getattr(n, "auto_generated", False)]
+    real_members = [e for e in mdl.elms if not getattr(e, "auto_generated", False)]
     return [
         Heading(1, "§５．準備計算"),
         Heading(2, "5.1 剛性に関する計算条件"),
         key_value_table([
-            ("節点数", len(mdl.nds)),
-            ("部材数", len(mdl.elms)),
+            ("節点数", len(real_nodes)),
+            ("部材数", len(real_members)),
             ("支点数", len(mdl.cons)),
             ("ダイアフラム数", len(mdl.diaps)),
             ("耐力壁数", len(mdl.wwalls)),
@@ -327,4 +370,4 @@ def chapter_preparation(ctx):
                 if not getattr(s, "auto_generated", False)
             ),
         ),
-    ]
+    ] + _wall_stiffness_section(mdl)

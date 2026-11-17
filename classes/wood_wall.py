@@ -7,15 +7,18 @@ from elm import Elm1D
 from mat import Mat
 from sec import Sec
 from diaphragm import DiaphragmConnection
+from nd import Nd
 
 
 WOOD_WALL_MODEL_SHEAR_PANEL = "SHEAR_PANEL"
 WOOD_WALL_MODEL_EQ_BRACE = "EQUIVALENT_BRACE"
 WOOD_WALL_MODEL_MEMBRANE = "MEMBRANE_WALL"
+WOOD_WALL_MODEL_ELEMENT = "WALL_ELEMENT"
 
 WWLL_MODEL_BRACE = 0
 WWLL_MODEL_PANEL = 1
 WWLL_MODEL_MEMBRANE = 2
+WWLL_MODEL_ELEMENT = 3
 WWLL_DIR_X = 0
 WWLL_DIR_Y = 1
 WWLL_LAYO_SINGLE = 0
@@ -27,6 +30,7 @@ def wwll_model_from_code(code):
         WWLL_MODEL_BRACE: WOOD_WALL_MODEL_EQ_BRACE,
         WWLL_MODEL_PANEL: WOOD_WALL_MODEL_SHEAR_PANEL,
         WWLL_MODEL_MEMBRANE: WOOD_WALL_MODEL_MEMBRANE,
+        WWLL_MODEL_ELEMENT: WOOD_WALL_MODEL_ELEMENT,
     }
     try:
         return mapping[int(code)]
@@ -39,6 +43,7 @@ def wwll_model_to_code(model):
         WOOD_WALL_MODEL_EQ_BRACE: WWLL_MODEL_BRACE,
         WOOD_WALL_MODEL_SHEAR_PANEL: WWLL_MODEL_PANEL,
         WOOD_WALL_MODEL_MEMBRANE: WWLL_MODEL_MEMBRANE,
+        WOOD_WALL_MODEL_ELEMENT: WWLL_MODEL_ELEMENT,
     }
     m = str(model).strip().upper()
     if m not in mapping:
@@ -198,7 +203,8 @@ class WoodRatedWall:
                  _reference_drift=1.0 / 120.0,
                  _model=WOOD_WALL_MODEL_EQ_BRACE,
                  _n1=None, _n2=None, _n3=None, _n4=None,
-                 _brace_layout="X", _diap_id=None, _dcon_tol=common.PRES_LEN):
+                 _brace_layout="X", _diap_id=None, _dcon_tol=common.PRES_LEN,
+                 _panel_mat_id=None, _panel_thickness=None):
         self.id = int(_id)
         self.name = str(_name).strip()
         self.multiplier = float(_multiplier)
@@ -223,6 +229,10 @@ class WoodRatedWall:
         self.generated_shear_panel_ids = []
         self.generated_mat_id = None
         self.generated_sec_id = None
+        self.generated_node_ids = []
+        self.generated_wall_element_ids = []
+        self.panel_mat_id = int(_panel_mat_id) if _panel_mat_id is not None else None
+        self.panel_thickness = float(_panel_thickness) if _panel_thickness is not None else None  # [m]
 
         if self.multiplier <= 0.0:
             raise ValueError("WOOD_RATED_WALL multiplier must be positive")
@@ -234,6 +244,13 @@ class WoodRatedWall:
             raise ValueError("WOOD_RATED_WALL RA must be positive")
         if self.direction not in ["X", "Y"]:
             raise ValueError("WOOD_RATED_WALL direction must be X or Y")
+        if self.model_requested == WOOD_WALL_MODEL_ELEMENT:
+            if self.panel_mat_id is None or self.panel_thickness is None:
+                raise ValueError(
+                    "WOOD_RATED_WALL {0}: MODEL=3 needs the panel material MAT and thickness T".format(self.id)
+                )
+            if self.panel_thickness <= 0.0:
+                raise ValueError("WOOD_RATED_WALL {0}: panel thickness must be positive".format(self.id))
 
     def resolve_length_height(self, nds):
         """Resolve L/H from explicit input and/or corner nodes."""
@@ -351,6 +368,9 @@ class WoodRatedWall:
             "" if self.diap_id is None else self.diap_id,
             wwll_layo_to_code(self.brace_layout),
         ]
+        if self.panel_mat_id is not None or self.panel_thickness is not None:
+            values.append("" if self.panel_mat_id is None else self.panel_mat_id)
+            values.append("" if self.panel_thickness is None else round(self.panel_thickness * 1e3, 6))
         return record_line("WWLL", WWLL_FMTS, values) + "\n"
 
     def generate_mvp_equivalent_braces(self, nds, mats, secs, elms, ejnts, dcons):
@@ -419,6 +439,129 @@ class WoodRatedWall:
                 dc.auto_generated = True
                 dcons.append(dc)
             eid += 1
+
+    def wall_element_properties(self, mat):
+        """Section of the ASTIM-style wall column (manual 2.3.5 a).
+
+        A = t L, I0 = t L^3 / 12, As0 = t L (kappa = 1). I and As are scaled by
+        alpha so that bending (fixed-fixed, 12EI) plus shear deformation equals the
+        rated stiffness K:  alpha = K (H^3 / (12 E I0) + H / (G As0)).
+        Returns (A, I, As, alpha) in m units.
+        """
+
+        length, height = self._require_dims()
+        t = self.panel_thickness
+        area = t * length
+        i0 = t * length ** 3 / 12.0
+        as0 = t * length
+        alpha = self.k_n_per_m * (height ** 3 / (12.0 * mat.E * i0) + height / (mat.G * as0))
+        return area, alpha * i0, alpha * as0, alpha
+
+    def generate_wall_element(self, nds, mats, secs, elms, ejnts, wwelems, dcons):
+        """Replace the wall by a wall column at mid-length joined to the corners by rigid arms.
+
+        The arms are rigid at the wall column and pinned at the corner nodes, so the
+        column end rotation follows the relative vertical movement of the corners and the
+        wall carries axial force, bending and shear as in ASTIM's wall element.
+        """
+
+        if not all(v is not None for v in [self.n1, self.n2, self.n3, self.n4]):
+            raise ValueError("WOOD_RATED_WALL requires N1,N2,N3,N4 for WALL_ELEMENT")
+        by_node = {n.id: n for n in nds}
+        corners = [by_node.get(nid) for nid in (self.n1, self.n2, self.n3, self.n4)]
+        if any(n is None for n in corners):
+            raise ValueError("WOOD_RATED_WALL node id not found")
+        n1, n2, n3, n4 = corners
+        panel_mat = next((m for m in mats if m.id == self.panel_mat_id), None)
+        if panel_mat is None:
+            raise ValueError("WOOD_RATED_WALL {0}: MAT {1} not found".format(self.id, self.panel_mat_id))
+
+        self.model_active = WOOD_WALL_MODEL_ELEMENT
+        area, inertia, shear_area, _alpha = self.wall_element_properties(panel_mat)
+
+        mid = _next_id(mats)
+        mat = Mat(mid, "WWEL_MAT_{0}".format(self.id), panel_mat.E, panel_mat.G, 0.0,
+                  panel_mat.alpha, panel_mat.fy)
+        mat.auto_generated = True
+        mats.append(mat)
+        self.generated_mat_id = mid
+
+        def midpoint(na, nb):
+            nid = _next_id(nds)
+            node = Nd(nid, 0.5 * (na.x + nb.x), 0.5 * (na.y + nb.y), 0.5 * (na.z + nb.z))
+            node.auto_generated = True
+            nds.append(node)
+            self.generated_node_ids.append(nid)
+            return node
+
+        bottom = midpoint(n1, n2)
+        top = midpoint(n4, n3)
+
+        # Wall column; the in-plane axis is picked from the member's local axes.
+        sid = _next_id(secs)
+        column_sec = Sec(sid, "WWEL_SEC_{0}".format(self.id), mat, 0, [0.1, 0.1])
+        column_sec.auto_generated = True
+        secs.append(column_sec)
+        self.generated_sec_id = sid
+        eid = _next_id(elms)
+        column = Elm1D(eid, bottom, top, column_sec, 0.0)
+        a = (n2.x - n1.x, n2.y - n1.y, n2.z - n1.z)
+        vy = column.pln.vy.v
+        vz = column.pln.vz.v
+        in_plane_z = abs(sum(a[i] * vz[i] for i in range(3))) >= abs(sum(a[i] * vy[i] for i in range(3)))
+        out_of_plane = inertia * 1.0e-3
+        column_sec.A = area
+        column_sec.J = out_of_plane
+        if in_plane_z:   # deflection along local z = bending about local y
+            column_sec.Iy, column_sec.Asz = inertia, shear_area
+            column_sec.Iz, column_sec.Asy = out_of_plane, shear_area
+        else:
+            column_sec.Iz, column_sec.Asy = inertia, shear_area
+            column_sec.Iy, column_sec.Asz = out_of_plane, shear_area
+        column_sec.iy = math.sqrt(column_sec.Iy / area)
+        column_sec.iz = math.sqrt(column_sec.Iz / area)
+        column.weight = column.CalcWeight()
+        column.auto_generated = True
+        column.generated_from = "WOOD_RATED_WALL"
+        column.generated_from_id = self.id
+        elms.append(column)
+        self.generated_elem_ids.append(eid)
+
+        # Rigid arms: much stiffer than the wall column, pinned at the corners.
+        rigid = 1.0e3
+        arm_sec = Sec(sid + 1, "WWEL_ARM_{0}".format(self.id), mat, 0, [0.1, 0.1])
+        arm_sec.auto_generated = True
+        arm_sec.A = rigid * area
+        arm_sec.Iy = arm_sec.Iz = arm_sec.J = rigid * inertia
+        arm_sec.Asy = arm_sec.Asz = rigid * area
+        arm_sec.iy = arm_sec.iz = math.sqrt(inertia / area)
+        secs.append(arm_sec)
+        arm_id = eid + 1
+        for centre, corner in ((bottom, n1), (bottom, n2), (top, n4), (top, n3)):
+            arm = Elm1D(arm_id, centre, corner, arm_sec, 0.0)
+            arm.weight = arm.CalcWeight()
+            arm.auto_generated = True
+            arm.generated_from = "WOOD_RATED_WALL"
+            arm.generated_from_id = self.id
+            elms.append(arm)
+            self.generated_elem_ids.append(arm_id)
+            ej = EJnt(arm_id, [None, None, 0.0, 0.0])
+            ej.auto_generated = True
+            ejnts.append(ej)
+            arm_id += 1
+
+        wid = _next_id(wwelems)
+        element = WoodWallElement(wid, self.id, self.name, n1, n2, n3, n4, self.direction, self.k_n_per_m,
+                                  column, "z" if in_plane_z else "y", a)
+        element.auto_generated = True
+        wwelems.append(element)
+        self.generated_wall_element_ids.append(wid)
+
+        if self.diap_id is not None:
+            for nid in [self.n3, self.n4]:
+                dc = DiaphragmConnection(self.diap_id, "NODE", nid, "CONNECTED_RIGID", self.dcon_tol)
+                dc.auto_generated = True
+                dcons.append(dc)
 
     def generate_shear_panel(self, nds, wshears, dcons):
         if self.model_requested == WOOD_WALL_MODEL_MEMBRANE:
@@ -532,3 +675,37 @@ class WoodShearPanel:
     def direction_matches_wall(self):
         a = self._plane()[0]
         return abs(a[0] if self.direction == "X" else a[1]) >= math.sqrt(0.5) * math.hypot(a[0], a[1])
+
+
+class WoodWallElement(WoodShearPanel):
+    """ASTIM-style wall element (WWLL MODEL=3): a wall column with rigid arms.
+
+    It exposes the same reporting interface as WoodShearPanel (corner nodes,
+    direction, nominal K, shear_force) but adds no stiffness of its own: the
+    generated wall column and arms carry the wall in the frame analysis.
+    """
+
+    def __init__(self, _id, _wall_id, _name, _n1, _n2, _n3, _n4, _direction, _k_n_per_m,
+                 _column, _in_plane_axis, _edge):
+        super().__init__(_id, _wall_id, _name, _n1, _n2, _n3, _n4, _direction, _k_n_per_m)
+        self.column = _column
+        self.in_plane_axis = _in_plane_axis  # local axis of the in-plane deflection
+        length = math.sqrt(sum(v * v for v in _edge))
+        self.edge = tuple(v / length for v in _edge)
+
+    def shear_force(self, clc):
+        """Wall shear [N] along N1 -> N2, from the wall column's in-plane shear."""
+
+        forces = self.column.forces
+        if forces is None:
+            return 0.0
+        axis = self.column.pln.vz.v if self.in_plane_axis == "z" else self.column.pln.vy.v
+        sign = 1.0 if sum(axis[i] * self.edge[i] for i in range(3)) >= 0.0 else -1.0
+        shear = float(forces[2 if self.in_plane_axis == "z" else 1, clc])
+        return sign * shear
+
+    def axial_force(self, clc):
+        """Wall axial force [N] (compression negative), at the bottom of the wall column."""
+
+        forces = self.column.forces
+        return 0.0 if forces is None else float(forces[0, clc])

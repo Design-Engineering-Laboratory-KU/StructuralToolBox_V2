@@ -27,6 +27,45 @@ def register(app, resolve_model_path, _raise_os_error, _invalidate_caches):
             headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(name)},
         )
 
+    @app.post("/api/report/pdf/save")
+    def api_report_pdf_save(body: dict = Body(...)):
+        """Ask where to save (OS save-as dialog), then write the calculation book there."""
+
+        import os
+
+        from stb_gui import model_json
+        from stb_gui.file_dialog import DialogBusy, DialogUnavailable, choose_save_path
+        from stb_gui.report_view import build_report_pdf_for_model, report_pdf_name
+
+        path = body.get("path")
+        if not path:
+            raise HTTPException(status_code=400, detail="path is required")
+        if not model_json.ALLOW_EXTERNAL_MODELS:
+            raise HTTPException(status_code=501, detail="Save dialog is available only on this computer")
+        try:
+            full = resolve_model_path(path)
+            target = choose_save_path(
+                os.path.dirname(full), report_pdf_name(full), title="Save the calculation book"
+            )
+        except ValueError as ex:
+            raise HTTPException(status_code=400, detail=str(ex))
+        except DialogBusy as ex:
+            raise HTTPException(status_code=409, detail=str(ex))
+        except DialogUnavailable as ex:
+            raise HTTPException(status_code=501, detail=str(ex))
+        if not target:
+            return JSONResponse({"ok": True, "saved": None})
+        try:
+            data, _name = build_report_pdf_for_model(path)
+            with open(target, "wb") as fh:
+                fh.write(data)
+        except ValueError as ex:
+            raise HTTPException(status_code=400, detail=str(ex))
+        except OSError as ex:
+            # e.g. the PDF is open in a viewer that locks it
+            raise HTTPException(status_code=500, detail="Could not write {0}: {1}".format(target, ex))
+        return JSONResponse({"ok": True, "saved": os.path.abspath(target)})
+
     @app.get("/api/project")
     def api_project(
         path: str = Query(..., description="Relative path to .dat under project root"),

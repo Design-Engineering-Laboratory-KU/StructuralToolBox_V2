@@ -6,7 +6,7 @@ import os
 import re
 from typing import Any, Dict, Iterable, Optional
 
-from stb_gui.model_json import normalize_model_relpath, project_root, resolve_model_path
+from stb_gui.model_json import model_display_path, normalize_model_relpath, project_root, resolve_model_path
 from stb_loads.equilibrium import get_cached_solved_model
 from stb_practice import build_structural_indices
 from stb_project import load_project_for_dat, project_path_for_dat
@@ -22,7 +22,7 @@ PRACTICE_TABS = (
 
 
 def _project_rel_path(full: str) -> str:
-    return os.path.relpath(project_path_for_dat(full), project_root()).replace("\\", "/")
+    return model_display_path(project_path_for_dat(full))
 
 
 def _fmt_ratio(value: Optional[float]) -> str:

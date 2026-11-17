@@ -36,5 +36,10 @@ def build_report_pdf_for_model(rel_path: str):
         write_calc_book_pdf(path, mdl, project, program_version=stb_version)
         with open(path, "rb") as fh:
             data = fh.read()
-    stem = os.path.splitext(os.path.basename(full))[0]
-    return data, stem + "_計算書.pdf"
+    return data, report_pdf_name(full)
+
+
+def report_pdf_name(full):
+    """Default file name of the calculation book for a .dat file."""
+
+    return os.path.splitext(os.path.basename(full))[0] + "_計算書.pdf"

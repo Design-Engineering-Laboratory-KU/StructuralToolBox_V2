@@ -89,6 +89,7 @@ class Mdl:
         self.dloads     = _dloads if _dloads is not None else []
         self.wwalls     = _wwalls if _wwalls is not None else []
         self.wshears    = _wshears if _wshears is not None else []
+        self.wwelems    = []  # WOOD_RATED_WALL MODEL=3 wall elements (reporting view)
         self.input_warnings = list(_input_warnings) if _input_warnings is not None else []
         self.dassocs    = []
         self.mpcs       = []
@@ -427,6 +428,7 @@ class Mdl:
         self.dloads = []
         self.wwalls = []
         self.wshears = []
+        self.wwelems = []
         self.dassocs = []
         self.mpcs = []
         self.mats = []

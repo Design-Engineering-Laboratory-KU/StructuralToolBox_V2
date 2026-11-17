@@ -531,9 +531,15 @@ function normalizeModelPath(path) {
   return p;
 }
 
+function isAbsoluteModelPath(path) {
+  return /^([A-Za-z]:\/|\/)/.test(path || "");
+}
+
 function modelInList(models, path) {
   const p = normalizeModelPath(path);
   if (!p) return null;
+  // Files opened from their own folder are kept by absolute path.
+  if (isAbsoluteModelPath(p)) return p;
   return models.indexOf(p) >= 0 ? p : null;
 }
 
@@ -659,7 +665,20 @@ function enrichModelReactions(model) {
   return model;
 }
 
+let _rebuildScheduled = false;
+
+// Coalesce rapid-fire rebuild requests (slider "input" events) to one per frame.
+function scheduleRebuildScene() {
+  if (_rebuildScheduled) return;
+  _rebuildScheduled = true;
+  requestAnimationFrame(() => {
+    _rebuildScheduled = false;
+    rebuildScene();
+  });
+}
+
 function rebuildScene() {
+  _rebuildScheduled = false;
   if (!currentModel) return;
   try {
     enrichModelReactions(currentModel);
@@ -3867,6 +3886,7 @@ function initThree() {
 
   window.addEventListener("resize", onResize);
   applyViewerInteractionControls();
+  installRenderTriggers();
   animate();
 }
 
@@ -3893,9 +3913,57 @@ function clearWideLineMaterials() {
   wideLineMaterials.clear();
 }
 
+// Render on demand: a static scene is not re-rendered (and its billboard
+// labels are not re-laid-out) every frame. A frame is drawn when the camera or
+// viewport changed, or when requestRender() was called. Scene graph add/remove
+// and user input request a frame automatically (see installRenderTriggers).
+let _renderRequested = true;
+let _lastRenderCamera = null;
+const _lastCamWorld = new THREE.Matrix4();
+const _lastCamProj = new THREE.Matrix4();
+let _lastRenderW = 0;
+let _lastRenderH = 0;
+
+function requestRender() {
+  _renderRequested = true;
+}
+
+function installRenderTriggers() {
+  const proto = THREE.Object3D.prototype;
+  for (const name of ["add", "remove", "clear"]) {
+    const orig = proto[name];
+    proto[name] = function () {
+      _renderRequested = true;
+      return orig.apply(this, arguments);
+    };
+  }
+  const evs = ["pointerdown", "pointermove", "pointerup", "wheel", "keydown", "keyup", "input", "change", "click"];
+  for (const ev of evs) {
+    window.addEventListener(ev, requestRender, { capture: true, passive: true });
+  }
+  window.addEventListener("resize", requestRender);
+  document.addEventListener("visibilitychange", requestRender);
+  // Safety net for state changes that bypass the triggers above.
+  setInterval(requestRender, 1000);
+}
+
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
+  camera.updateMatrixWorld();
+  const w = renderer.domElement.clientWidth;
+  const h = renderer.domElement.clientHeight;
+  const cameraChanged = camera !== _lastRenderCamera
+    || w !== _lastRenderW || h !== _lastRenderH
+    || !_lastCamWorld.equals(camera.matrixWorld)
+    || !_lastCamProj.equals(camera.projectionMatrix);
+  if (!cameraChanged && !_renderRequested) return;
+  _renderRequested = false;
+  _lastRenderCamera = camera;
+  _lastRenderW = w;
+  _lastRenderH = h;
+  _lastCamWorld.copy(camera.matrixWorld);
+  _lastCamProj.copy(camera.projectionMatrix);
   updateReactionForceDisplay();
   updateNodeLabelPositions();
   updateElemLabelPositions();
@@ -4284,6 +4352,10 @@ function applyDispContourAutoRange() {
   rebuildScene();
 }
 
+function srgbToLinearChannel(c) {
+  return c < 0.04045 ? c * 0.0773993808 : Math.pow(c * 0.9478672986 + 0.0521327014, 2.4);
+}
+
 function addDispContourLineSegments(positions, colors, group) {
   const lineW = dispContourLineWidthPx();
   if (lineW <= 1.01) {
@@ -4303,16 +4375,12 @@ function addDispContourLineSegments(positions, colors, group) {
     return;
   }
 
-  const segCount = positions.length / 6;
-  for (let i = 0; i < segCount; i++) {
-    const base = i * 6;
-    const pts = positions.slice(base, base + 6);
-    const r = (colors[base] + colors[base + 3]) * 0.5;
-    const g = (colors[base + 1] + colors[base + 4]) * 0.5;
-    const b = (colors[base + 2] + colors[base + 5]) * 0.5;
-    const hex = (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255);
-    addWideLineSegmentsFromPts(pts, hex, group, 31, lineW, ALPHA.opaque, "overlay");
-  }
+  // Single draw call with per-vertex colours. The previous per-segment path
+  // fed the (linear) colour through setHex, i.e. treated it as sRGB; apply the
+  // same sRGB->linear step so the wide contour keeps its established look.
+  const vcol = new Float32Array(colors.length);
+  for (let i = 0; i < colors.length; i++) vcol[i] = srgbToLinearChannel(colors[i]);
+  createWideLineSegments(positions, 0xffffff, group, 31, lineW, ALPHA.opaque, "overlay", vcol);
 }
 
 function addMaxDisplacementMarker(model, lc, defFac, span, deformed, component, group, labelGroup) {
@@ -4361,16 +4429,31 @@ function addMaxDisplacementMarker(model, lc, defFac, span, deformed, component, 
   );
 }
 
-function clearGroup(g) {
-  while (g.children.length > 0) {
-    const c = g.children[0];
-    g.remove(c);
+function disposeMaterial(m) {
+  if (!m) return;
+  // Shared textures (label cache, node point sprite) are owned elsewhere.
+  if (m.map && !(m.map.userData && m.map.userData.sharedTexture)) m.map.dispose();
+  wideLineMaterials.delete(m);
+  m.dispose();
+}
+
+function disposeObjectTree(obj) {
+  obj.traverse((c) => {
     if (c.geometry) c.geometry.dispose();
     if (c.material) {
-      if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
-      else c.material.dispose();
+      if (Array.isArray(c.material)) c.material.forEach(disposeMaterial);
+      else disposeMaterial(c.material);
     }
-  }
+  });
+}
+
+function clearGroup(g) {
+  dropWideLineBatchForGroup(g);
+  if (g.children.length === 0) return;
+  const children = g.children.slice();
+  g.clear();
+  for (const c of children) disposeObjectTree(c);
+  requestRender();
 }
 
 function modelSectionMap(model) {
@@ -4913,6 +4996,16 @@ function updateWorldAxes(model) {
 }
 
 function buildModelScene(model) {
+  beginWideLineBatch();
+  try {
+    buildModelSceneInner(model);
+  } finally {
+    endWideLineBatch();
+    requestRender();
+  }
+}
+
+function buildModelSceneInner(model) {
   clearGroup(modelGroup);
   clearGroup(labelGroup);
   clearWideLineMaterials();
@@ -5413,6 +5506,7 @@ function createNodePointTexture() {
   ctx.fillStyle = "#ffffff";
   ctx.fill();
   _nodePointTexture = new THREE.CanvasTexture(canvas);
+  _nodePointTexture.userData.sharedTexture = true;
   _nodePointTexture.needsUpdate = true;
   return _nodePointTexture;
 }
@@ -6082,15 +6176,63 @@ function forceLineWidthPx() {
   return clampLineWidthPx(viewerOptions.forceLineWidth, 1.5, OPTIONS_LIMITS.forceLineWidth.max);
 }
 
+// Wide-line batching: while a batch is open, wide line segments sharing the
+// same group / colour / width / blending are merged into one LineSegments2, so
+// e.g. hundreds of load arrows cost one draw call instead of hundreds.
+let _wideLineBatch = null;
+let _wideLineBatchDepth = 0;
+
+function beginWideLineBatch() {
+  if (_wideLineBatchDepth === 0) _wideLineBatch = new Map();
+  _wideLineBatchDepth++;
+}
+
+function endWideLineBatch() {
+  if (_wideLineBatchDepth <= 0) return;
+  _wideLineBatchDepth--;
+  if (_wideLineBatchDepth > 0) return;
+  const batch = _wideLineBatch;
+  _wideLineBatch = null;
+  if (!batch) return;
+  for (const b of batch.values()) {
+    createWideLineSegments(b.pts, b.color, b.group, b.renderOrder, b.lineWidthPx, b.opacity, b.opaque);
+  }
+}
+
+function dropWideLineBatchForGroup(group) {
+  if (!_wideLineBatch) return;
+  for (const [key, b] of _wideLineBatch) {
+    if (b.group === group) _wideLineBatch.delete(key);
+  }
+}
+
 function addWideLineSegmentsFromPts(pts, color, group, renderOrder, lineWidthPx, opacity, opaque) {
+  if (pts.length < 6) return null;
+  if (_wideLineBatch) {
+    const key = group.id + "|" + color + "|" + renderOrder + "|" + lineWidthPx + "|" + opacity + "|" + opaque;
+    let b = _wideLineBatch.get(key);
+    if (!b) {
+      b = { pts: [], color, group, renderOrder, lineWidthPx, opacity, opaque };
+      _wideLineBatch.set(key, b);
+    }
+    const dst = b.pts;
+    for (let i = 0; i < pts.length; i++) dst.push(pts[i]);
+    return null;
+  }
+  return createWideLineSegments(pts, color, group, renderOrder, lineWidthPx, opacity, opaque);
+}
+
+function createWideLineSegments(pts, color, group, renderOrder, lineWidthPx, opacity, opaque, colors) {
   if (pts.length < 6) return null;
   const geo = new LineSegmentsGeometry();
   geo.setPositions(pts);
+  if (colors) geo.setColors(colors);
   const useOpaque = opaque === true;
   const useOverlay = opaque === "overlay";
   const isTransparent = useOverlay || (!useOpaque && opacity != null && opacity < ALPHA.opaque);
   const mat = new LineMaterial({
     color: color,
+    vertexColors: !!colors,
     linewidth: lineWidthPx,
     worldUnits: false,
     transparent: isTransparent,
@@ -6485,7 +6627,7 @@ function addLoadValueLabel(text, point, span, scaleFactor, group) {
 
 function makeLoadValueLabelSprite(text, span, scaleFactor) {
   const factor = scaleFactor != null ? scaleFactor : 0.06;
-  const quality = Math.min(20, Math.max(4, labelTextureQualityScale(factor) * 1.75));
+  const quality = Math.min(LABEL_QUALITY_MAX, Math.max(4, labelTextureQualityScale(factor) * 1.75));
   return makeTextSprite(text, span, {
     bg: "transparent",
     fg: colorHex(COLORS.load),
@@ -8055,9 +8197,68 @@ function buildLabelCanvas(text, span, opts) {
   return { canvas, labelPremultiplied, worldW, worldH };
 }
 
+// Label textures are cached by (text, style) and shared between sprites, so a
+// rebuild (LC switch, option slider, ...) does not re-rasterise and re-upload
+// every label. Entries are evicted LRU; an evicted texture still in use is
+// simply re-uploaded by three.js on its next draw.
+const LABEL_TEXTURE_CACHE_MAX = 1500;
+const labelTextureCache = new Map();
+
+function labelTextureCacheKey(text, opts) {
+  const o = opts || {};
+  const factor = o.scaleFactor != null ? o.scaleFactor : 0.06;
+  const quality = o.qualityScale != null ? o.qualityScale : labelTextureQualityScale(factor);
+  return [
+    text,
+    Object.prototype.hasOwnProperty.call(o, "bg") ? String(o.bg) : "~",
+    o.fg || "",
+    o.pad != null ? o.pad : "",
+    quality,
+    o.solidAlpha ? 1 : 0,
+    o.textOutline ? 1 : 0,
+    o.outlineColor || "",
+    o.labelPremultiplied ? 1 : 0,
+    o.opaque ? 1 : 0,
+    o.crispLabel ? 1 : 0,
+  ].join("\u0001");
+}
+
+function getLabelTexture(text, span, opts) {
+  const key = labelTextureCacheKey(text, opts);
+  let hit = labelTextureCache.get(key);
+  if (hit) {
+    labelTextureCache.delete(key);
+    labelTextureCache.set(key, hit);
+  } else {
+    const { canvas, labelPremultiplied } = buildLabelCanvas(text, span, opts);
+    const tex = createLabelTexture(canvas, labelPremultiplied, !!(opts && opts.crispLabel));
+    tex.userData.sharedTexture = true;
+    hit = { tex, labelPremultiplied, aspect: canvas.width / canvas.height };
+    labelTextureCache.set(key, hit);
+    while (labelTextureCache.size > LABEL_TEXTURE_CACHE_MAX) {
+      const oldestKey = labelTextureCache.keys().next().value;
+      const old = labelTextureCache.get(oldestKey);
+      labelTextureCache.delete(oldestKey);
+      old.tex.dispose();
+    }
+  }
+  const factor = opts && opts.scaleFactor != null ? opts.scaleFactor : 0.06;
+  const worldH = span * factor;
+  return {
+    tex: hit.tex,
+    labelPremultiplied: hit.labelPremultiplied,
+    worldW: worldH * hit.aspect,
+    worldH,
+  };
+}
+
+function clearLabelTextureCache() {
+  for (const v of labelTextureCache.values()) v.tex.dispose();
+  labelTextureCache.clear();
+}
+
 function makeTextPlaneMesh(text, span, opts) {
-  const { canvas, labelPremultiplied, worldW, worldH } = buildLabelCanvas(text, span, opts);
-  const tex = createLabelTexture(canvas, labelPremultiplied, !!opts.crispLabel);
+  const { tex, labelPremultiplied, worldW, worldH } = getLabelTexture(text, span, opts);
   const mat = new THREE.MeshBasicMaterial({
     map: tex,
     transparent: true,
@@ -8381,7 +8582,8 @@ function addDirectedArrowWideMutable(tail, head, group, color, lineWidthPx, head
     : directedArrowLinePoints(tail, head, headScale);
   if (pts.length < 6) return null;
   const ro = (renderOrder != null && isFinite(renderOrder)) ? renderOrder : 5;
-  return addWideLineSegmentsFromPts(pts, color, group, ro, lineWidthPx, null, opaque === true);
+  // Mutable (per-frame updated) arrows must own their geometry: never batch.
+  return createWideLineSegments(pts, color, group, ro, lineWidthPx, null, opaque === true);
 }
 
 function addDirectedArrow(tail, head, group, color, lineWidthPx, headScale, renderOrder, opaque) {
@@ -8605,6 +8807,16 @@ function addForceValueLabelWithLeader(text, diagramPt, axisPt, span, group) {
 }
 
 function buildForceDiagrams(model) {
+  beginWideLineBatch();
+  try {
+    buildForceDiagramsInner(model);
+  } finally {
+    endWideLineBatch();
+    requestRender();
+  }
+}
+
+function buildForceDiagramsInner(model) {
   clearGroup(forceGroup);
   clearGroup(forceLabelGroup);
   forceLabelEntries = [];
@@ -8719,10 +8931,15 @@ function buildForceDiagrams(model) {
   }
 }
 
+// Upper bound of the label raster scale (font px = 28 * quality). Larger
+// values produced multi-megapixel canvases per label and made load-value
+// display take seconds.
+const LABEL_QUALITY_MAX = 8;
+
 function labelTextureQualityScale(scaleFactor) {
   const f = scaleFactor != null ? scaleFactor : 0.06;
   const dpr = typeof window !== "undefined" ? (window.devicePixelRatio || 1) : 1;
-  return Math.min(16, Math.max(2, Math.round((f / 0.03) * dpr * 1.5)));
+  return Math.min(LABEL_QUALITY_MAX, Math.max(2, Math.round((f / 0.03) * dpr * 1.5)));
 }
 
 function premultiplyCanvasAlpha(canvas) {
@@ -8768,8 +8985,7 @@ function solidifyCanvasForeground(canvas, fg, alphaThreshold) {
 
 function makeTextSprite(text, span, opts) {
   opts = opts || {};
-  const { canvas, labelPremultiplied, worldW, worldH } = buildLabelCanvas(text, span, opts);
-  const tex = createLabelTexture(canvas, labelPremultiplied, !!opts.crispLabel);
+  const { tex, labelPremultiplied, worldW, worldH } = getLabelTexture(text, span, opts);
   const useTransparent = opts.transparent !== false;
   const mat = new THREE.SpriteMaterial({
     map: tex,
@@ -10165,6 +10381,28 @@ async function downloadCalcBook() {
     setStatus("Open a model before creating the calculation book");
     return;
   }
+  // Ask where to save (OS dialog on this computer); fall back to a browser download.
+  setStatus("Choose where to save the calculation book…");
+  try {
+    const res = await fetch(guiApiUrl("/api/report/pdf/save", window), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: path }),
+    });
+    if (res.status !== 501) {
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || res.statusText);
+      if (!body.saved) {
+        setStatus("Calculation book not saved");
+        return;
+      }
+      setStatus(body.saved.replace(/\\/g, "/") + " — calculation book saved");
+      return;
+    }
+  } catch (ex) {
+    setStatus("Error: " + ex.message);
+    return;
+  }
   setStatus(path + " — creating the calculation book…");
   try {
     const res = await fetch(guiApiUrl("/api/report/pdf?path=" + encodeURIComponent(path), window));
@@ -10516,8 +10754,35 @@ async function createNewModel() {
   }
 }
 
-function promptOpenModelFile() {
-  if (el.openFileInput) el.openFileInput.click();
+async function promptOpenModelFile() {
+  // The server shows the OS dialog so the file is opened where it is.
+  // The browser file input (which can only copy the file into data/) is the fallback.
+  setStatus("Choose an input file…");
+  try {
+    const res = await fetch("/api/model/browse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start: getCurrentModelPath() }),
+    });
+    if (res.status === 501) {
+      if (el.openFileInput) el.openFileInput.click();
+      return;
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || res.statusText);
+    }
+    const data = await res.json();
+    if (!data.path) {
+      setStatus("Open cancelled");
+      return;
+    }
+    setCurrentModelPath(data.path);
+    await loadSelectedModel(false);
+    setStatus(data.path + " — opened");
+  } catch (ex) {
+    setStatus("Error: " + ex.message);
+  }
 }
 
 async function openUploadedModelFile(file) {
@@ -11130,12 +11395,12 @@ el.forceSelect.addEventListener("change", () => {
 el.frcDiv.addEventListener("input", () => {
   el.frcDivVal.textContent = el.frcDiv.value;
   onResultsDisplayChanged();
-  if (currentModel) rebuildScene();
+  if (currentModel) scheduleRebuildScene();
 });
 el.frcFactor.addEventListener("input", () => {
   el.frcFactorVal.textContent = el.frcFactor.value;
   onResultsDisplayChanged();
-  if (currentModel) rebuildScene();
+  if (currentModel) scheduleRebuildScene();
 });
 el.chkForceValues.addEventListener("change", () => {
   onResultsDisplayChanged();
@@ -11559,7 +11824,7 @@ function loadViewerOptions() {
 function onOptionsChanged() {
   readOptionsFromUi();
   saveViewerOptions();
-  if (currentModel) rebuildScene();
+  if (currentModel) scheduleRebuildScene();
 }
 
 function initViewerOptions() {

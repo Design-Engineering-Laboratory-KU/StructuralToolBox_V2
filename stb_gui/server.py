@@ -85,10 +85,13 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         load_input_text,
         load_model_dict,
         load_results_text,
+        model_display_path,
         normalize_model_relpath,
         open_uploaded_model,
+        project_root,
         resolve_model_path,
     )
+    from stb_gui import model_json as _model_json
     default_model = normalize_model_relpath(default_model)
     try:
         from fastapi import FastAPI, HTTPException, Query, Body
@@ -294,6 +297,37 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
             raise HTTPException(status_code=500, detail=str(ex))
         return JSONResponse({"ok": True, "path": rel})
 
+    @app.post("/api/model/browse")
+    def api_model_browse(body: dict | None = Body(None)):
+        """Show the OS open-file dialog on this computer and return the chosen .dat in place."""
+
+        from stb_gui.file_dialog import DialogBusy, DialogUnavailable, choose_dat_file
+
+        if not _model_json.ALLOW_EXTERNAL_MODELS:
+            raise HTTPException(status_code=501, detail="File dialog is available only on this computer")
+        start = (body or {}).get("start")
+        initial_dir = None
+        if start:
+            try:
+                initial_dir = os.path.dirname(resolve_model_path(start))
+            except ValueError:
+                initial_dir = None
+        if initial_dir is None:
+            initial_dir = os.path.join(project_root(), "data")
+        try:
+            chosen = choose_dat_file(initial_dir)
+        except DialogBusy as ex:
+            raise HTTPException(status_code=409, detail=str(ex))
+        except DialogUnavailable as ex:
+            raise HTTPException(status_code=501, detail=str(ex))
+        if not chosen:
+            return JSONResponse({"ok": True, "path": None})
+        try:
+            full = resolve_model_path(os.path.abspath(chosen))
+        except ValueError as ex:
+            raise HTTPException(status_code=400, detail=str(ex))
+        return JSONResponse({"ok": True, "path": model_display_path(full)})
+
     @app.get("/api/version")
     def api_version():
         return JSONResponse({"version": stb_version})
@@ -321,6 +355,11 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
 
 def gui_open_url(host, port):
     return "http://{0}:{1}/".format(host, port)
+
+
+def _is_loopback_host(host):
+    name = str(host or "").strip().lower()
+    return name in ("127.0.0.1", "localhost", "::1", "[::1]") or name.startswith("127.")
 
 
 def _port_is_open(host, port):
@@ -374,6 +413,10 @@ def run_server(
             "Install with: pip install -e \".[gui]\""
         )
 
+    from stb_gui.model_json import set_external_models_allowed
+
+    # Files outside the install folder are opened in place only for a local GUI.
+    set_external_models_allowed(_is_loopback_host(host))
     app = create_app(default_model=default_model, exit_with_browser=exit_with_browser)
 
     print("Structural Toolbox: {0}".format(url))
