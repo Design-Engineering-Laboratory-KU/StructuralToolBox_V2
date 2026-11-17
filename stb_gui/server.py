@@ -6,6 +6,7 @@ import threading
 import time
 
 from stb_gui.browser import open_gui_browser
+from stb_gui.file_dialog import choose_dat_file
 
 
 def _invalidate_caches(full):
@@ -86,7 +87,7 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         load_model_dict,
         load_results_text,
         normalize_model_relpath,
-        open_uploaded_model,
+        register_external_model_path,
         resolve_model_path,
     )
     default_model = normalize_model_relpath(default_model)
@@ -281,18 +282,19 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         return JSONResponse({"ok": True, "path": rel, "text": text})
 
     @app.post("/api/model/open")
-    def api_model_open(body: dict = Body(...)):
-        text = body.get("text")
-        if text is None:
-            raise HTTPException(status_code=400, detail="text is required")
-        filename = body.get("filename") or body.get("path") or "model.dat"
+    def api_model_open():
         try:
-            rel = open_uploaded_model(filename, text)
+            selected = choose_dat_file()
+            if selected is None:
+                return JSONResponse({"ok": False, "cancelled": True})
+            path = register_external_model_path(selected)
         except ValueError as ex:
             raise HTTPException(status_code=400, detail=str(ex))
+        except RuntimeError as ex:
+            raise HTTPException(status_code=503, detail=str(ex))
         except OSError as ex:
             raise HTTPException(status_code=500, detail=str(ex))
-        return JSONResponse({"ok": True, "path": rel})
+        return JSONResponse({"ok": True, "path": normalize_model_relpath(path)})
 
     @app.get("/api/version")
     def api_version():
