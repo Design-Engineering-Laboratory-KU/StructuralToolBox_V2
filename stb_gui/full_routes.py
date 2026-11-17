@@ -3,8 +3,10 @@
 The Simple installer omits this file, so these routes do not exist there.
 """
 
-from fastapi import Body, HTTPException, Query
-from fastapi.responses import JSONResponse
+import os
+
+from fastapi import Body, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 
 
 def register(app, resolve_model_path, _raise_os_error, _invalidate_caches):
@@ -169,6 +171,85 @@ def register(app, resolve_model_path, _raise_os_error, _invalidate_caches):
         except (ValueError, OSError) as ex:
             return HTMLResponse(error_page_html(str(ex)), status_code=400, headers=headers)
         return HTMLResponse(body, headers=headers)
+
+    def _require_local_origin(request: Request) -> None:
+        # The report endpoint writes files at user-given paths, so refuse calls
+        # from pages that are not served by this GUI (CORS is open for the API).
+        origin = request.headers.get("origin")
+        if not origin or origin == "null":
+            return
+        from urllib.parse import urlparse
+
+        host = (urlparse(origin).hostname or "").lower()
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            raise HTTPException(status_code=403, detail="Report generation is only allowed from the local GUI")
+
+    @app.get("/api/report/defaults")
+    def api_report_defaults(
+        path: str = Query("", description="Relative path to the open .dat (optional)"),
+    ):
+        from stb_gui.report_view import report_defaults_for_model
+
+        try:
+            data = report_defaults_for_model(path or None)
+        except ValueError:
+            data = report_defaults_for_model(None)
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
+    def _run_report_request(request, body, kind):
+        _require_local_origin(request)
+        from stb_engine.errors import StbParseError, StbSolveError
+        from stb_gui.report_view import run_report
+        from stb_reports.pdf import PdfExportError
+
+        try:
+            data = run_report(
+                body.get("input"),
+                body.get("output"),
+                body.get("format") or None,
+                kind=kind,
+            )
+        except StbParseError as ex:
+            raise HTTPException(status_code=400, detail="Parse error: " + str(ex))
+        except StbSolveError as ex:
+            raise HTTPException(status_code=400, detail="Analysis error: " + str(ex))
+        except PdfExportError as ex:
+            raise HTTPException(status_code=500, detail=str(ex))
+        except (ValueError, IOError) as ex:
+            raise HTTPException(status_code=400, detail=str(ex))
+        return JSONResponse(data)
+
+    @app.post("/api/report/confirmation")
+    def api_report_confirmation(request: Request, body: dict = Body(...)):
+        """Same as ``stb report <input> -o <output>``; returns where it was written."""
+
+        return _run_report_request(request, body, "confirmation")
+
+    @app.post("/api/report/wall-quantity")
+    def api_report_wall_quantity(request: Request, body: dict = Body(...)):
+        """Same as ``stb wallcalc <input> -o <output>`` (.html / .md / .pdf)."""
+
+        return _run_report_request(request, body, "wall_quantity")
+
+    @app.get("/api/report/view")
+    def api_report_view(token: str = Query(...)):
+        from fastapi.responses import HTMLResponse, PlainTextResponse
+        from stb_gui.report_view import generated_report_file
+
+        out = generated_report_file(token)
+        if not out or not os.path.isfile(out):
+            raise HTTPException(status_code=404, detail="Report not found (generate it again)")
+        headers = {"Cache-Control": "no-store"}
+        if out.lower().endswith(".pdf"):
+            from urllib.parse import quote
+
+            headers["Content-Disposition"] = "inline; filename*=UTF-8''" + quote(os.path.basename(out))
+            return FileResponse(out, media_type="application/pdf", headers=headers)
+        with open(out, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        if out.lower().endswith(".md"):
+            return PlainTextResponse(text, headers=headers)
+        return HTMLResponse(text, headers=headers)
 
     @app.post("/api/loads/seismic/apply")
     def api_loads_seismic_apply(
