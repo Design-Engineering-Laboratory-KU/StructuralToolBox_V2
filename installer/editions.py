@@ -36,6 +36,9 @@ FULL_ONLY_PATHS = (
     "stb_gui/static/practice_verify.css",
     "stb_gui/static/practice_verify.html",
     "stb_gui/static/practice_verify.js",
+    "stb_gui/static/report.css",
+    "stb_gui/static/report.html",
+    "stb_gui/static/report.js",
     "docs/project_format.md",
     "docs/project_overview.md",
     "docs/report_gap_map.md",
@@ -63,7 +66,7 @@ FULL_ONLY_MODULES = (
 )
 
 INDEX_HTML = "stb_gui/static/index.html"
-FULL_ONLY_BUTTONS = ("btnGuiMode", "btnProject", "btnLoads", "btnPractice", "btnWallQuantity", "btnCalcBook")
+FULL_ONLY_BUTTONS = ("btnGuiMode", "btnProject", "btnLoads", "btnPractice", "btnWallQuantity", "btnCalcBook", "btnReport")
 
 README = "README.md"
 # pyproject.toml names this file, so the install needs it to exist.
