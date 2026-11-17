@@ -4,6 +4,7 @@ import json
 from stb_gui.input_format import NEW_MODEL_TEMPLATE, NEW_MODEL_TEMPLATE_SIMPLE
 
 _STB_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_EXTERNAL_MODEL_PATHS = set()
 
 
 def project_root():
@@ -204,8 +205,9 @@ def _area_load_element_load_entries(mdl):
     return entries
 
 
-# Absolute paths to .dat files anywhere on this computer may be opened in place.
-# The server turns this off when it listens on a non-loopback address.
+# .dat files outside the project are opened in place once the user has picked
+# them in the native file dialog (register_external_model_path). The server turns
+# this off when it listens on a non-loopback address.
 ALLOW_EXTERNAL_MODELS = True
 
 
@@ -214,12 +216,16 @@ def set_external_models_allowed(allowed):
     ALLOW_EXTERNAL_MODELS = bool(allowed)
 
 
+def _external_key(full):
+    return os.path.normcase(os.path.realpath(full))
+
+
 def resolve_model_path(path):
-    """Resolve a model path to an absolute file name.
+    """Resolve a project model or an external model selected in this session.
 
     Relative paths are taken under the project root and may not leave it.
-    Absolute paths may point anywhere (the file is opened where it is) but
-    must name an existing .dat file.
+    Absolute paths outside the project must have been registered with
+    register_external_model_path (the user picked them in the file dialog).
     """
 
     path = normalize_model_relpath(path)
@@ -227,23 +233,34 @@ def resolve_model_path(path):
         raise ValueError("Model path is empty")
 
     root = os.path.realpath(project_root())
-    inside = True
     if os.path.isabs(path):
         full = os.path.realpath(path)
-        inside = full.startswith(root + os.sep)
-        if not inside:
-            if not ALLOW_EXTERNAL_MODELS:
-                raise ValueError("Model path must be inside the project: " + path)
-            if not full.lower().endswith(".dat"):
-                raise ValueError("Model file must be a .dat file: " + path)
     else:
         full = os.path.realpath(os.path.join(root, path))
-        if not full.startswith(root + os.sep) and full != root:
+
+    inside_project = full.startswith(root + os.sep) or full == root
+    if not inside_project:
+        registered = ALLOW_EXTERNAL_MODELS and _external_key(full) in _EXTERNAL_MODEL_PATHS
+        if not registered:
             raise ValueError("Model path must be inside the project: " + path)
 
     if not os.path.isfile(full):
         raise ValueError("Model file not found: " + path)
 
+    return full
+
+
+def register_external_model_path(path):
+    """Allow one user-selected .dat file outside the project tree."""
+
+    full = os.path.realpath(os.path.abspath(os.path.expanduser(os.fspath(path))))
+    if not ALLOW_EXTERNAL_MODELS:
+        raise ValueError("Model path must be inside the project: " + full)
+    if not full.lower().endswith(".dat"):
+        raise ValueError("Model file must have a .dat extension: " + full)
+    if not os.path.isfile(full):
+        raise ValueError("Model file not found: " + full)
+    _EXTERNAL_MODEL_PATHS.add(_external_key(full))
     return full
 
 
@@ -258,7 +275,7 @@ def model_display_path(full):
 
 
 def list_model_files():
-    """Return relative paths of .dat files under data/ and examples/."""
+    """Return bundled models plus external models selected in this session."""
 
     out = []
     for sub in ("data", "examples"):
@@ -268,6 +285,7 @@ def list_model_files():
         for name in sorted(os.listdir(base)):
             if name.endswith(".dat"):
                 out.append(os.path.join(sub, name).replace("\\", "/"))
+    out.extend(sorted(model_display_path(path) for path in _EXTERNAL_MODEL_PATHS if os.path.isfile(path)))
     return out
 
 
@@ -276,19 +294,6 @@ def _model_dir_allowed(rel):
     if not rel or not rel.endswith(".dat"):
         return False
     return rel.startswith("data/") or rel.startswith("examples/")
-
-
-def safe_model_basename(filename):
-    """Return a safe .dat basename for files stored under data/."""
-
-    name = os.path.basename(str(filename or "").replace("\\", "/")).strip()
-    if not name:
-        raise ValueError("Filename is required")
-    if not name.lower().endswith(".dat"):
-        name += ".dat"
-    if name in (".dat", "..dat") or ".." in name or "/" in name or "\\" in name:
-        raise ValueError("Invalid filename: " + filename)
-    return name
 
 
 def allocate_new_model_path():
@@ -332,13 +337,6 @@ def write_model_file(rel_path, text):
 
     write_dat_text(full, text if text is not None else "")
     return rel
-
-
-def open_uploaded_model(filename, text):
-    """Save uploaded input under data/ and return its relative path."""
-
-    name = safe_model_basename(filename)
-    return write_model_file("data/" + name, text)
 
 
 def mdl_to_dict(mdl, relpath=None, solved=False):

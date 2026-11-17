@@ -60,6 +60,33 @@ class TestProjectEditForm(unittest.TestCase):
         self.assertIn("edit", view)
         self.assertGreater(len(view["edit"]["sections"]), 0)
 
+    def test_wall_quantity_settings_are_in_edit_form(self):
+        project = load_project_file(
+            os.path.join(_STB_ROOT, "data", "sample_wall_quantity_2f.project.json")
+        )
+        form = build_project_edit_form(project)
+        by_id = {section["id"]: section for section in form["sections"]}
+
+        settings = by_id["wall_quantity"]
+        field_paths = [field["path"] for field in settings["fields"]]
+        self.assertIn("wall_quantity.seismic.method", field_paths)
+        self.assertIn("wall_quantity.wind.coefficient_cm_m2", field_paths)
+        self.assertIn("wall_quantity.column_size.enabled", field_paths)
+
+        stories = by_id["wall_quantity_stories"]["table"]
+        self.assertEqual(stories["path"], "wall_quantity.stories")
+        self.assertEqual(len(stories["rows"]), 2)
+        self.assertIn("plan_polygons", [column["path"] for column in stories["columns"]])
+
+        walls = by_id["wall_quantity_walls"]["table"]
+        self.assertEqual(walls["path"], "wall_quantity.walls")
+        self.assertGreater(len(walls["rows"]), 0)
+        self.assertIn("brace_section", [column["path"] for column in walls["columns"]])
+
+        self.assertIn("wall_quantity_quasi_walls", by_id)
+        self.assertIn("wall_quantity_column_stories", by_id)
+        self.assertIn("wall_quantity_tributary_checks", by_id)
+
 
 if __name__ == "__main__":
     unittest.main()

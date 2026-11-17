@@ -24,6 +24,20 @@ from stb_project.schema import (
     DEFAULT_SEISMIC_TC,
 )
 from stb_project import ProjectDefinition, effective_seismic_ci
+from stb_project.wall_quantity_settings import (
+    ALLOWED_BRACE_LAYOUTS,
+    ALLOWED_BRACE_SECTIONS,
+    ALLOWED_INSULATION_MODES,
+    ALLOWED_QUASI_WALL_MATERIALS,
+    ALLOWED_QUASI_WALL_TYPES,
+    ALLOWED_SEISMIC_WEIGHT_METHODS,
+    ALLOWED_SOLAR_MODES,
+    ALLOWED_WALL_DIRECTIONS,
+    ALLOWED_WALL_KINDS,
+    ALLOWED_WALL_QUANTITY_STANDARDS,
+    EXTERIOR_WALL_LABELS_JA,
+    ROOF_LABELS_JA,
+)
 
 
 def build_project_edit_form(project: ProjectDefinition) -> Dict[str, Any]:
@@ -498,4 +512,250 @@ def build_project_edit_form(project: ProjectDefinition) -> Dict[str, Any]:
         },
     ]
 
+    raw_wall_quantity = project.to_dict().get("wall_quantity")
+    if raw_wall_quantity is not None:
+        sections[-1:-1] = _build_wall_quantity_sections(raw_wall_quantity)
+
     return {"sections": sections}
+
+
+def _build_wall_quantity_sections(wq: Dict[str, Any]) -> List[Dict[str, Any]]:
+    seismic = wq.get("seismic", {})
+    wind = wq.get("wind", {})
+    solar = seismic.get("solar", {})
+    ceiling = seismic.get("ceiling_insulation", {})
+    wall_insulation = seismic.get("wall_insulation", {})
+    column_size = wq.get("column_size", {})
+
+    def options_with_blank(values):
+        return [""] + list(values)
+
+    return [
+        {
+            "id": "wall_quantity",
+            "title": "壁量計算",
+            "fields": [
+                {"path": "wall_quantity.enabled", "label": "有効", "type": "bool", "value": wq.get("enabled", True)},
+                {
+                    "path": "wall_quantity.standard",
+                    "label": "基準",
+                    "type": "select",
+                    "options": list(ALLOWED_WALL_QUANTITY_STANDARDS),
+                    "value": wq.get("standard", "2025"),
+                },
+                {
+                    "path": "wall_quantity.seismic.method",
+                    "label": "地震重量の算定方法",
+                    "type": "select",
+                    "options": list(ALLOWED_SEISMIC_WEIGHT_METHODS),
+                    "option_labels": {"spec": "仕様から算定", "direct": "階重量を直接入力"},
+                    "value": seismic.get("method", "spec"),
+                },
+                {"path": "wall_quantity.seismic.c0", "label": "標準せん断力係数 C0", "type": "number", "value": seismic.get("c0", 0.2)},
+                {
+                    "path": "wall_quantity.seismic.building_height_m",
+                    "label": "建物高さ m",
+                    "type": "optional_number",
+                    "value": seismic.get("building_height_m"),
+                },
+                {
+                    "path": "wall_quantity.seismic.single_story_lw_cm_m2",
+                    "label": "平屋部分 Lw cm/m²",
+                    "type": "optional_number",
+                    "value": seismic.get("single_story_lw_cm_m2"),
+                },
+                {
+                    "path": "wall_quantity.seismic.roof",
+                    "label": "屋根仕様",
+                    "type": "select",
+                    "options": options_with_blank(ROOF_LABELS_JA.keys()),
+                    "option_labels": ROOF_LABELS_JA,
+                    "value": seismic.get("roof", ""),
+                },
+                {
+                    "path": "wall_quantity.seismic.exterior_wall",
+                    "label": "外壁仕様",
+                    "type": "select",
+                    "options": options_with_blank(EXTERIOR_WALL_LABELS_JA.keys()),
+                    "option_labels": EXTERIOR_WALL_LABELS_JA,
+                    "value": seismic.get("exterior_wall", ""),
+                },
+                {
+                    "path": "wall_quantity.seismic.solar.mode",
+                    "label": "太陽光設備",
+                    "type": "select",
+                    "options": list(ALLOWED_SOLAR_MODES),
+                    "value": solar.get("mode", "none"),
+                },
+                {
+                    "path": "wall_quantity.seismic.solar.mass_kg",
+                    "label": "太陽光設備質量 kg",
+                    "type": "number",
+                    "value": solar.get("mass_kg", 0.0),
+                },
+                {
+                    "path": "wall_quantity.seismic.ceiling_insulation.mode",
+                    "label": "天井断熱",
+                    "type": "select",
+                    "options": list(ALLOWED_INSULATION_MODES),
+                    "value": ceiling.get("mode", "default"),
+                },
+                {
+                    "path": "wall_quantity.seismic.ceiling_insulation.layers",
+                    "label": "天井断熱層 (JSON)",
+                    "type": "json",
+                    "value": ceiling.get("layers", []),
+                },
+                {
+                    "path": "wall_quantity.seismic.wall_insulation.mode",
+                    "label": "壁断熱",
+                    "type": "select",
+                    "options": list(ALLOWED_INSULATION_MODES),
+                    "value": wall_insulation.get("mode", "default"),
+                },
+                {
+                    "path": "wall_quantity.seismic.wall_insulation.layers",
+                    "label": "壁断熱層 (JSON)",
+                    "type": "json",
+                    "value": wall_insulation.get("layers", []),
+                },
+                {
+                    "path": "wall_quantity.wind.coefficient_cm_m2",
+                    "label": "風圧用係数 cm/m²",
+                    "type": "number",
+                    "value": wind.get("coefficient_cm_m2", 50.0),
+                },
+                {
+                    "path": "wall_quantity.quasi_over_half_verified",
+                    "label": "準耐力壁過半確認済み",
+                    "type": "bool",
+                    "value": wq.get("quasi_over_half_verified", False),
+                },
+                {
+                    "path": "wall_quantity.column_size.enabled",
+                    "label": "柱の小径検定",
+                    "type": "bool",
+                    "value": column_size.get("enabled", True),
+                },
+                {
+                    "path": "wall_quantity.column_size.check_model_columns",
+                    "label": "モデル柱を検定",
+                    "type": "bool",
+                    "value": column_size.get("check_model_columns", True),
+                },
+            ],
+        },
+        {
+            "id": "wall_quantity_stories",
+            "title": "壁量計算 — 階",
+            "table": {
+                "path": "wall_quantity.stories",
+                "label": "階別入力",
+                "columns": [
+                    {"path": "story", "label": "階", "type": "text"},
+                    {"path": "floor_area_m2", "label": "床面積 m²", "type": "number"},
+                    {"path": "height_m", "label": "階高 m", "type": "optional_number"},
+                    {"path": "weight_kN", "label": "階重量 kN", "type": "optional_number"},
+                    {"path": "wind_area_x_m2", "label": "見付面積X m²", "type": "number"},
+                    {"path": "wind_area_y_m2", "label": "見付面積Y m²", "type": "number"},
+                    {"path": "plan_polygons", "label": "平面形状 (JSON)", "type": "json"},
+                ],
+                "rows": list(wq.get("stories", [])),
+            },
+        },
+        {
+            "id": "wall_quantity_walls",
+            "title": "壁量計算 — 耐力壁",
+            "table": {
+                "path": "wall_quantity.walls",
+                "label": "WWLL別設定",
+                "columns": [
+                    {"path": "wwll_id", "label": "WWLL ID", "type": "optional_int"},
+                    {"path": "story", "label": "階", "type": "text"},
+                    {"path": "kind", "label": "種別", "type": "select", "options": list(ALLOWED_WALL_KINDS)},
+                    {"path": "multiplier", "label": "倍率", "type": "optional_number"},
+                    {"path": "exclude", "label": "除外", "type": "bool"},
+                    {"path": "brace_section", "label": "筋かい断面", "type": "select", "options": options_with_blank(ALLOWED_BRACE_SECTIONS)},
+                    {"path": "brace_layout", "label": "筋かい配置", "type": "select", "options": options_with_blank(ALLOWED_BRACE_LAYOUTS)},
+                    {"path": "notes", "label": "メモ", "type": "text"},
+                ],
+                "rows": list(wq.get("walls", [])),
+            },
+        },
+        {
+            "id": "wall_quantity_columns",
+            "title": "壁量計算 — 柱",
+            "table": {
+                "path": "wall_quantity.columns",
+                "label": "N値計算の柱上書き",
+                "columns": [
+                    {"path": "story", "label": "階", "type": "text"},
+                    {"path": "x", "label": "X m", "type": "number"},
+                    {"path": "y", "label": "Y m", "type": "number"},
+                    {"path": "corner", "label": "出隅", "type": "bool"},
+                    {"path": "name", "label": "名称", "type": "text"},
+                ],
+                "rows": list(wq.get("columns", [])),
+            },
+        },
+        {
+            "id": "wall_quantity_quasi_walls",
+            "title": "壁量計算 — 準耐力壁",
+            "table": {
+                "path": "wall_quantity.quasi_walls",
+                "label": "準耐力壁・垂れ壁・腰壁",
+                "columns": [
+                    {"path": "name", "label": "名称", "type": "text"},
+                    {"path": "story", "label": "階", "type": "text"},
+                    {"path": "direction", "label": "方向", "type": "select", "options": list(ALLOWED_WALL_DIRECTIONS)},
+                    {"path": "length_m", "label": "長さ m", "type": "number"},
+                    {"path": "type", "label": "種別", "type": "select", "options": list(ALLOWED_QUASI_WALL_TYPES)},
+                    {"path": "material", "label": "材料", "type": "select", "options": list(ALLOWED_QUASI_WALL_MATERIALS)},
+                    {"path": "base_multiplier", "label": "基準倍率", "type": "optional_number"},
+                    {"path": "material_height_m", "label": "面材高さ m", "type": "number"},
+                    {"path": "clear_height_m", "label": "内法高さ m", "type": "number"},
+                    {"path": "x", "label": "X m", "type": "optional_number"},
+                    {"path": "y", "label": "Y m", "type": "optional_number"},
+                    {"path": "notes", "label": "メモ", "type": "text"},
+                ],
+                "rows": list(wq.get("quasi_walls", [])),
+            },
+        },
+        {
+            "id": "wall_quantity_column_stories",
+            "title": "壁量計算 — 柱の小径",
+            "table": {
+                "path": "wall_quantity.column_size.stories",
+                "label": "階別の柱材条件",
+                "columns": [
+                    {"path": "story", "label": "階", "type": "text"},
+                    {"path": "jas", "label": "JAS区分", "type": "text"},
+                    {"path": "species", "label": "樹種", "type": "text"},
+                    {"path": "grade", "label": "等級", "type": "text"},
+                    {"path": "fc_n_mm2", "label": "Fc N/mm²", "type": "optional_number"},
+                    {"path": "label", "label": "表示名", "type": "text"},
+                    {"path": "length_mm", "label": "柱長 mm", "type": "optional_number"},
+                    {"path": "outer_load_kN_m2", "label": "外周荷重 kN/m²", "type": "optional_number"},
+                    {"path": "inner_load_kN_m2", "label": "内部荷重 kN/m²", "type": "optional_number"},
+                ],
+                "rows": list(column_size.get("stories", [])),
+            },
+        },
+        {
+            "id": "wall_quantity_tributary_checks",
+            "title": "壁量計算 — 柱負担面積",
+            "table": {
+                "path": "wall_quantity.column_size.tributary_checks",
+                "label": "柱の負担面積検定",
+                "columns": [
+                    {"path": "name", "label": "名称", "type": "text"},
+                    {"path": "story", "label": "階", "type": "text"},
+                    {"path": "location", "label": "位置", "type": "select", "options": ["outer", "inner"]},
+                    {"path": "b_mm", "label": "幅 b mm", "type": "number"},
+                    {"path": "d_mm", "label": "せい d mm", "type": "number"},
+                    {"path": "area_m2", "label": "負担面積 m²", "type": "number"},
+                ],
+                "rows": list(column_size.get("tributary_checks", [])),
+            },
+        },
+    ]

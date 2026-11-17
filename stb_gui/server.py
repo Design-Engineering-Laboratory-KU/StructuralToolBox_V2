@@ -6,6 +6,7 @@ import threading
 import time
 
 from stb_gui.browser import open_gui_browser
+from stb_gui.file_dialog import choose_dat_file
 
 
 def _invalidate_caches(full):
@@ -87,8 +88,8 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         load_results_text,
         model_display_path,
         normalize_model_relpath,
-        open_uploaded_model,
         project_root,
+        register_external_model_path,
         resolve_model_path,
     )
     from stb_gui import model_json as _model_json
@@ -284,24 +285,10 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         return JSONResponse({"ok": True, "path": rel, "text": text})
 
     @app.post("/api/model/open")
-    def api_model_open(body: dict = Body(...)):
-        text = body.get("text")
-        if text is None:
-            raise HTTPException(status_code=400, detail="text is required")
-        filename = body.get("filename") or body.get("path") or "model.dat"
-        try:
-            rel = open_uploaded_model(filename, text)
-        except ValueError as ex:
-            raise HTTPException(status_code=400, detail=str(ex))
-        except OSError as ex:
-            raise HTTPException(status_code=500, detail=str(ex))
-        return JSONResponse({"ok": True, "path": rel})
+    def api_model_open(body: dict | None = Body(None)):
+        """Show the OS open-file dialog on this computer; the chosen .dat is opened in place."""
 
-    @app.post("/api/model/browse")
-    def api_model_browse(body: dict | None = Body(None)):
-        """Show the OS open-file dialog on this computer and return the chosen .dat in place."""
-
-        from stb_gui.file_dialog import DialogBusy, DialogUnavailable, choose_dat_file
+        from stb_gui.file_dialog import DialogBusy
 
         if not _model_json.ALLOW_EXTERNAL_MODELS:
             raise HTTPException(status_code=501, detail="File dialog is available only on this computer")
@@ -315,18 +302,19 @@ def create_app(default_model=None, watch_client=False, exit_with_browser=None):
         if initial_dir is None:
             initial_dir = os.path.join(project_root(), "data")
         try:
-            chosen = choose_dat_file(initial_dir)
+            selected = choose_dat_file(initial_dir)
+            if selected is None:
+                return JSONResponse({"ok": False, "cancelled": True})
+            path = register_external_model_path(selected)
         except DialogBusy as ex:
             raise HTTPException(status_code=409, detail=str(ex))
-        except DialogUnavailable as ex:
-            raise HTTPException(status_code=501, detail=str(ex))
-        if not chosen:
-            return JSONResponse({"ok": True, "path": None})
-        try:
-            full = resolve_model_path(os.path.abspath(chosen))
         except ValueError as ex:
             raise HTTPException(status_code=400, detail=str(ex))
-        return JSONResponse({"ok": True, "path": model_display_path(full)})
+        except RuntimeError as ex:
+            raise HTTPException(status_code=503, detail=str(ex))
+        except OSError as ex:
+            raise HTTPException(status_code=500, detail=str(ex))
+        return JSONResponse({"ok": True, "path": model_display_path(path)})
 
     @app.get("/api/version")
     def api_version():

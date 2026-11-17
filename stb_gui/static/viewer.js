@@ -182,7 +182,6 @@ const el = {
   btnSave: document.getElementById("btnSave"),
   btnClose: document.getElementById("btnClose"),
   modelPath: document.getElementById("modelPath"),
-  openFileInput: document.getElementById("openFileInput"),
   btnReload: document.getElementById("btnReload"),
   btnSolve: document.getElementById("btnSolve"),
   btnInput: document.getElementById("btnInput"),
@@ -191,6 +190,7 @@ const el = {
   btnPractice: document.getElementById("btnPractice"),
   btnWallQuantity: document.getElementById("btnWallQuantity"),
   btnCalcBook: document.getElementById("btnCalcBook"),
+  btnReport: document.getElementById("btnReport"),
   btnOutput: document.getElementById("btnOutput"),
   lcSelect: document.getElementById("lcSelect"),
   defFactor: document.getElementById("defFactor"),
@@ -9088,6 +9088,7 @@ const CHILD_WINDOW_NAMES = {
   loadsVerify: "stb_loads_verify",
   practiceVerify: "stb_practice_verify",
   wallQuantity: "stb_wall_quantity",
+  report: "stb_report_output",
   results: "stb_gui_results",
 };
 
@@ -9186,11 +9187,29 @@ function runWhenPopupReady(w, initFn) {
       alert(String(ex.message || ex));
     }
   };
-  if (w.document.readyState === "complete" || w.document.readyState === "interactive") {
-    run();
-    return;
-  }
-  w.addEventListener("load", run, { once: true });
+  let attempts = 0;
+  const waitForPopupDocument = () => {
+    if (!w || w.closed) return;
+    let ready = false;
+    try {
+      const href = w.location.href || "";
+      ready = href !== "" && href !== "about:blank"
+        && (w.document.readyState === "complete" || w.document.readyState === "interactive");
+    } catch (_) {
+      /* navigation is still in progress */
+    }
+    if (ready) {
+      run();
+      return;
+    }
+    attempts += 1;
+    if (attempts < 200) {
+      window.setTimeout(waitForPopupDocument, 25);
+    } else {
+      setStatus("Error: popup window did not finish loading");
+    }
+  };
+  waitForPopupDocument();
 }
 
 function stbIconHeadHtml(targetWindow) {
@@ -9335,6 +9354,22 @@ function formatCsvInts(values) {
 
 function parseProjectFieldValue(type, raw, path) {
   const text = String(raw ?? "").trim();
+  if (type === "json") {
+    if (!text) return [];
+    try {
+      return JSON.parse(text);
+    } catch (ex) {
+      throw new Error("JSON形式を確認してください (" + path + "): " + ex.message);
+    }
+  }
+  if (type === "optional_number") {
+    if (!text || text === "—") return undefined;
+    const n = Number(text);
+    if (!Number.isFinite(n)) {
+      throw new Error("数値を入力してください: " + raw);
+    }
+    return n;
+  }
   if (type === "optional_int") {
     if (!text || text === "—") return null;
     const n = Number(text);
@@ -9383,6 +9418,22 @@ function parseProjectFieldValue(type, raw, path) {
 
 function parseProjectTableCellValue(type, raw) {
   const text = String(raw ?? "").trim();
+  if (type === "json") {
+    if (!text) return [];
+    try {
+      return JSON.parse(text);
+    } catch (ex) {
+      throw new Error("JSON形式を確認してください: " + ex.message);
+    }
+  }
+  if (type === "optional_number") {
+    if (!text || text === "—") return null;
+    const n = Number(text);
+    if (!Number.isFinite(n)) {
+      throw new Error("数値を入力してください: " + raw);
+    }
+    return n;
+  }
   if (type === "number") {
     if (!text) return null;
     const n = Number(text);
@@ -9588,7 +9639,13 @@ function normalizeProjectPayload(project) {
 }
 
 function formatProjectFieldValue(type, value) {
+  if (type === "json") {
+    return JSON.stringify(value == null ? [] : value, null, 2);
+  }
   if (type === "optional_int") {
+    return value == null ? "" : String(value);
+  }
+  if (type === "optional_number") {
     return value == null ? "" : String(value);
   }
   if (type === "csv_int") {
@@ -9610,6 +9667,10 @@ function formatProjectFieldValue(type, value) {
 function renderProjectFieldInput(field, inputId) {
   const value = formatProjectFieldValue(field.type, field.value);
   const hint = field.hint ? "<span class=\"proj-hint\">" + escapeHtml(field.hint) + "</span>" : "";
+  if (field.type === "json") {
+    return "<textarea class=\"proj-input proj-json-input\" data-path=\"" + escapeHtml(field.path)
+      + "\" data-type=\"json\" id=\"" + inputId + "\" rows=\"4\">" + escapeHtml(value) + "</textarea>" + hint;
+  }
   if (field.type === "bool") {
     return "<select class=\"proj-input\" data-path=\"" + escapeHtml(field.path) + "\" data-type=\"bool\" id=\"" + inputId + "\">"
       + "<option value=\"true\"" + (value === "true" ? " selected" : "") + ">はい</option>"
@@ -9625,7 +9686,7 @@ function renderProjectFieldInput(field, inputId) {
     html += "</select>" + hint;
     return html;
   }
-  if (field.type === "number" || field.type === "optional_int") {
+  if (field.type === "number" || field.type === "optional_int" || field.type === "optional_number") {
     const inputMode = field.type === "optional_int" ? "numeric" : "decimal";
     return "<input class=\"proj-input proj-input-num\" type=\"text\" inputmode=\"" + inputMode + "\" data-path=\""
       + escapeHtml(field.path) + "\" data-type=\"" + escapeHtml(field.type) + "\" id=\"" + inputId + "\" value=\""
@@ -9637,7 +9698,7 @@ function renderProjectFieldInput(field, inputId) {
 }
 
 function projectTableCellTdClass(col) {
-  if (col.type === "number" || col.type === "optional_int") return " proj-cell-num";
+  if (col.type === "number" || col.type === "optional_int" || col.type === "optional_number") return " proj-cell-num";
   if (col.type === "select" || col.type === "bool") return " proj-cell-select";
   return " proj-cell-text";
 }
@@ -9651,6 +9712,12 @@ function projectOptionLabel(def, opt) {
 }
 
 function renderProjectEditTableCellHtml(col, cellId, val) {
+  if (col.type === "json") {
+    const cellValue = JSON.stringify(val == null ? [] : val);
+    return "<textarea class=\"proj-cell-input proj-cell-json\" data-col=\""
+      + escapeHtml(col.path) + "\" data-type=\"json\" id=\"" + cellId + "\" rows=\"2\">"
+      + escapeHtml(cellValue) + "</textarea>";
+  }
   if (col.type === "csv_int" || col.type === "csv_number") {
     const cellValue = formatCsvInts(val);
     return "<input class=\"proj-cell-input proj-cell-text\" type=\"text\" data-col=\""
@@ -9673,7 +9740,7 @@ function renderProjectEditTableCellHtml(col, cellId, val) {
       + "<option value=\"false\"" + (!checked ? " selected" : "") + ">いいえ</option>"
       + "</select>";
   }
-  if (col.type === "number" || col.type === "optional_int") {
+  if (col.type === "number" || col.type === "optional_int" || col.type === "optional_number") {
     const inputMode = col.type === "optional_int" ? "numeric" : "decimal";
     return "<input class=\"proj-cell-input proj-cell-num\" type=\"text\" inputmode=\"" + inputMode + "\" data-col=\""
       + escapeHtml(col.path) + "\" data-type=\"" + escapeHtml(col.type) + "\" id=\"" + cellId + "\" value=\""
@@ -9860,20 +9927,38 @@ function populateFormFromProject(formRoot, editForm, project) {
 
 function showProjectWindow(view) {
   const title = view.project_path || view.title || "project.json";
-  const w = openNamedChildPopup("project", "width=980,height=820,scrollbars=yes,resizable=yes");
-  if (!w) {
-    setStatus("Popup blocked — allow popups for this site");
-    return;
-  }
-  const init = () => initProjectEditorWindow(w, view, title);
-  if (w.__stbProjectEditorReady) {
-    init();
-    return;
-  }
-  runWhenPopupReady(w, () => {
-    w.__stbProjectEditorReady = true;
-    init();
+  const oldOverlay = document.getElementById("stb-project-overlay");
+  if (oldOverlay) oldOverlay.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "stb-project-overlay";
+  Object.assign(overlay.style, {
+    position: "fixed",
+    inset: "0",
+    zIndex: "10000",
+    padding: "2vh 2vw",
+    boxSizing: "border-box",
+    background: "rgba(0,0,0,.55)",
   });
+
+  const frame = document.createElement("iframe");
+  frame.title = view.title || title;
+  Object.assign(frame.style, {
+    display: "block",
+    width: "100%",
+    height: "100%",
+    border: "0",
+    borderRadius: "8px",
+    background: "#f4f5f7",
+    boxShadow: "0 12px 40px rgba(0,0,0,.45)",
+  });
+  overlay.appendChild(frame);
+  document.body.appendChild(overlay);
+
+  const w = frame.contentWindow;
+  primeStbPopupOrigin(w);
+  w.__stbInlineProjectClose = () => overlay.remove();
+  initProjectEditorWindow(w, view, title);
 }
 
 function initProjectEditorWindow(w, view, title) {
@@ -9885,7 +9970,7 @@ function initProjectEditorWindow(w, view, title) {
   doc.write("<title>");
   doc.write(escapeHtml(view.title || title));
   doc.write("</title><style>");
-  doc.write("html,body{height:100%;margin:0;}");
+  doc.write("html,body{height:100%;margin:0;color-scheme:light;}");
   doc.write("body{background:#f4f5f7;color:#1a1a22;font-family:'Segoe UI',system-ui,sans-serif;line-height:1.45;display:flex;flex-direction:column;overflow:hidden;}");
   doc.write(".toolbar{padding:10px 16px;background:#252530;color:#e8e6ed;border-bottom:1px solid #3a3a48;display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0;}");
   doc.write(".toolbar button{background:#e1dee4;color:#111;border:none;border-radius:4px;padding:6px 12px;font-weight:600;cursor:pointer;}");
@@ -9907,8 +9992,9 @@ function initProjectEditorWindow(w, view, title) {
   doc.write(".proj-rows dd{margin:0;font-size:13px;color:#111;}");
   doc.write(".proj-readonly dt,.proj-readonly dd{color:#6b7280;}");
   doc.write(".proj-hint{display:block;margin-top:4px;font-size:11px;color:#6b7280;font-weight:400;}");
-  doc.write(".proj-input,.proj-cell-input{box-sizing:border-box;border:1px solid #cbd5e1;border-radius:4px;padding:5px 7px;font:inherit;background:#fff;}");
+  doc.write(".proj-input,.proj-cell-input{box-sizing:border-box;border:1px solid #cbd5e1;border-radius:4px;padding:5px 7px;font:inherit;background:#fff;color:#111;-webkit-text-fill-color:#111;color-scheme:light;}");
   doc.write(".proj-input{width:100%;max-width:420px;}");
+  doc.write(".proj-json-input{min-height:84px;font-family:monospace;resize:vertical;}");
   doc.write(".proj-table-wrap{margin-top:8px;overflow:auto;max-width:100%;border:1px solid #e5e7eb;border-radius:6px;background:#fafbfc;}");
   doc.write(".proj-edit-table{width:max-content;min-width:100%;border-collapse:separate;border-spacing:0;font-size:12px;}");
   doc.write(".proj-edit-table th,.proj-edit-table td{border-right:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb;padding:5px 7px;vertical-align:middle;}");
@@ -9921,6 +10007,7 @@ function initProjectEditorWindow(w, view, title) {
   doc.write(".proj-cell-select,.proj-edit-table th.proj-cell-select{text-align:center;}");
   doc.write(".proj-cell-input.proj-cell-num{min-width:4.2em;max-width:7.5em;width:100%;text-align:right;font-variant-numeric:tabular-nums;}");
   doc.write(".proj-cell-input.proj-cell-text{min-width:6.5em;max-width:12em;width:100%;}");
+  doc.write(".proj-cell-json{min-width:18em;max-width:32em;font-family:monospace;resize:vertical;}");
   doc.write(".proj-cell-input{width:100%;}");
   doc.write(".proj-row-actions{width:64px;min-width:64px;text-align:center;white-space:nowrap;}");
   doc.write(".btn-table-add{margin-top:8px;background:#eef2ff;color:#1e3a8a;border:1px solid #c7d2fe;border-radius:4px;padding:5px 10px;font-weight:600;cursor:pointer;}");
@@ -9929,6 +10016,7 @@ function initProjectEditorWindow(w, view, title) {
   doc.write("</style></head><body>");
   doc.write("<div class=\"toolbar\">");
   doc.write("<button type=\"button\" id=\"btnSave\">保存</button>");
+  doc.write("<button type=\"button\" id=\"btnClose\" class=\"secondary\">閉じる</button>");
   doc.write("<button type=\"button\" id=\"btnCreate\" class=\"secondary\">新規作成</button>");
   doc.write("<button type=\"button\" id=\"btnReload\" class=\"secondary\">再読込</button>");
   doc.write("<button type=\"button\" id=\"btnWind4Dir\" class=\"secondary\">風4方向を生成 (WX±/WY±)</button>");
@@ -10192,6 +10280,14 @@ function initProjectEditorWindow(w, view, title) {
     tabBtn.addEventListener("click", () => switchTab(tabBtn.getAttribute("data-tab")));
   });
 
+  doc.getElementById("btnClose").addEventListener("click", () => {
+    if (typeof w.__stbInlineProjectClose === "function") {
+      w.__stbInlineProjectClose();
+    } else {
+      w.close();
+    }
+  });
+
   doc.getElementById("btnSave").addEventListener("click", async () => {
     if (!view.found && !view.draft) {
       alert("先に「新規作成」を実行してください。");
@@ -10420,6 +10516,28 @@ async function downloadCalcBook() {
   } catch (ex) {
     setStatus("Error: " + ex.message);
   }
+}
+
+function openReportWindow() {
+  // Works without an open model too: the project.json path is typed in the window.
+  const path = getCurrentModelPath() || "";
+  let url;
+  try {
+    url = guiApiUrl("/static/report.html" + (path ? "?path=" + encodeURIComponent(path) : ""), window);
+  } catch (ex) {
+    setStatus("Error: " + ex.message);
+    return;
+  }
+  const w = openNamedChildUrl(
+    "report",
+    url,
+    "width=900,height=720,scrollbars=yes,resizable=yes"
+  );
+  if (!w) {
+    setStatus("Popup blocked — allow popups for this site");
+    return;
+  }
+  setStatus((path ? path + " — " : "") + "report output opened");
 }
 
 window.openProjectWindow = openProjectWindow;
@@ -10755,51 +10873,24 @@ async function createNewModel() {
 }
 
 async function promptOpenModelFile() {
-  // The server shows the OS dialog so the file is opened where it is.
-  // The browser file input (which can only copy the file into data/) is the fallback.
-  setStatus("Choose an input file…");
+  setStatus("Select a .dat file…");
   try {
-    const res = await fetch("/api/model/browse", {
+    // The server shows the OS dialog (starting in the current model's folder) and
+    // opens the chosen file where it is.
+    const res = await fetch("/api/model/open", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ start: getCurrentModelPath() }),
     });
-    if (res.status === 501) {
-      if (el.openFileInput) el.openFileInput.click();
-      return;
-    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || res.statusText);
     }
     const data = await res.json();
-    if (!data.path) {
+    if (data.cancelled) {
       setStatus("Open cancelled");
       return;
     }
-    setCurrentModelPath(data.path);
-    await loadSelectedModel(false);
-    setStatus(data.path + " — opened");
-  } catch (ex) {
-    setStatus("Error: " + ex.message);
-  }
-}
-
-async function openUploadedModelFile(file) {
-  if (!file) return;
-  setStatus("Opening " + file.name + "…");
-  try {
-    const text = await file.text();
-    const res = await fetch("/api/model/open", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: file.name, text: text }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || res.statusText);
-    }
-    const data = await res.json();
     setCurrentModelPath(data.path);
     await loadSelectedModel(false);
     setStatus(data.path + " — opened");
@@ -11011,13 +11102,6 @@ el.btnNew.addEventListener("click", () => createNewModel());
 el.btnOpen.addEventListener("click", () => promptOpenModelFile());
 el.btnSave.addEventListener("click", () => saveCurrentModel());
 el.btnClose.addEventListener("click", () => closeApplication());
-if (el.openFileInput) {
-  el.openFileInput.addEventListener("change", () => {
-    const file = el.openFileInput.files && el.openFileInput.files[0];
-    el.openFileInput.value = "";
-    openUploadedModelFile(file);
-  });
-}
 
 el.btnReload.addEventListener("click", () => loadSelectedModel(false));
 el.btnSolve.addEventListener("click", () => loadSelectedModel(true));
@@ -11198,6 +11282,9 @@ if (el.btnWallQuantity) {
 }
 if (el.btnCalcBook) {
   el.btnCalcBook.addEventListener("click", () => downloadCalcBook());
+}
+if (el.btnReport) {
+  el.btnReport.addEventListener("click", () => openReportWindow());
 }
 el.btnOutput.addEventListener("click", () => openResultsWindow());
 el.lcSelect.addEventListener("change", () => {

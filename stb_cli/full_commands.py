@@ -164,36 +164,21 @@ def cmd_loads_combinations(args):
 
 def cmd_report(args):
     _ensure_project_root_on_path()
-    from stb_engine import parse_input, format_results
     from stb_engine.errors import StbParseError, StbSolveError
-    from stb_project import apply_load_combinations_to_model, load_project_file, load_project_for_dat
-    from stb_reports import write_confirmation_draft
+    from stb_reports import generate_confirmation_report
+    from stb_reports.pdf import PdfExportError
 
     try:
-        input_path = os.path.abspath(args.input)
-        if input_path.lower().endswith(".json"):
-            project = load_project_file(input_path)
-            dat_path = project.dat_path
-            if not os.path.isabs(dat_path):
-                dat_path = os.path.join(os.path.dirname(input_path), dat_path)
-        else:
-            dat_path = input_path
-            project = load_project_for_dat(dat_path, required=True)
-
-        lines = _read_lines(dat_path)
-        mdl = parse_input(lines)
-        mdl.filepath = dat_path
-        apply_load_combinations_to_model(mdl, project)
-        _solve_with_stdout_control(mdl, args.quiet)
-        txt = format_results(mdl)
-        draft = write_confirmation_draft(
+        draft, project, _dat_path = generate_confirmation_report(
+            args.input,
             args.output,
-            mdl,
-            project,
             output_format=args.format,
-            analysis_text=txt,
             program_version=_stb_version(),
+            quiet=args.quiet,
         )
+    except PdfExportError as ex:
+        _stderr(str(ex))
+        return EXIT_INPUT
     except IOError as ex:
         _stderr(str(ex))
         return EXIT_INPUT
@@ -208,7 +193,9 @@ def cmd_report(args):
         return EXIT_INPUT
 
     if args.verbose:
+        fmt = args.format or ("pdf" if args.output.lower().endswith(".pdf") else project.report.format)
         print("Report written: " + args.output)
+        print("  format:      " + fmt)
         print("  warnings:    " + str(len(draft.warnings)))
         if hasattr(draft, "page_count"):
             print("  pages:       " + str(draft.page_count))
@@ -219,29 +206,17 @@ def cmd_report(args):
 def cmd_wallcalc(args):
     """木造壁量計算書 (wall quantity / balance / N値 / 柱の小径). Parse only; no solve needed."""
     _ensure_project_root_on_path()
-    from stb_engine import parse_input
     from stb_engine.errors import StbParseError
-    from stb_project import load_project_file, load_project_for_dat
-    from stb_reports import write_wall_quantity_report
+    from stb_reports import generate_wall_quantity_report
+    from stb_reports.pdf import PdfExportError
 
     try:
-        input_path = os.path.abspath(args.input)
-        if input_path.lower().endswith(".json"):
-            project = load_project_file(input_path)
-            dat_path = project.dat_path
-            if not os.path.isabs(dat_path):
-                dat_path = os.path.join(os.path.dirname(input_path), dat_path)
-        else:
-            dat_path = input_path
-            project = load_project_for_dat(dat_path, required=True)
-        if not project.wall_quantity.enabled:
-            raise ValueError("project.wall_quantity is not set (see docs/project_format.md)")
-
-        mdl = parse_input(_read_lines(dat_path))
-        mdl.filepath = dat_path
-        report = write_wall_quantity_report(
-            args.output, mdl, project, output_format=args.format, program_version=_stb_version(),
+        report, _project, _dat_path = generate_wall_quantity_report(
+            args.input, args.output, output_format=args.format, program_version=_stb_version(),
         )
+    except PdfExportError as ex:
+        _stderr(str(ex))
+        return EXIT_INPUT
     except IOError as ex:
         _stderr(str(ex))
         return EXIT_INPUT
@@ -299,11 +274,11 @@ def register(sub, common):
     p_wall.add_argument(
         "-o", "--output",
         required=True,
-        help="Output report file (.html or .md)",
+        help="Output report file (.html, .md or .pdf; PDF uses Edge/Chrome)",
     )
     p_wall.add_argument(
         "--format",
-        choices=["markdown", "html"],
+        choices=["markdown", "html", "pdf"],
         default=None,
         help="Report format (default: from the output file extension)",
     )

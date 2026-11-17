@@ -19,6 +19,8 @@ gui = [
     "fastapi",
     "uvicorn[standard]",
     "httpx",
+    "reportlab",
+    "pypdf",
 ]
 report = [
     "reportlab",

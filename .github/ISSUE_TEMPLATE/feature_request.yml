@@ -1,0 +1,88 @@
+name: "💡 Feature request / 改善要望"
+description: "Suggest an improvement or a new feature / 改善案や新しい機能を提案します"
+title: "[Feature] "
+labels:
+  - enhancement
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for your suggestion.
+
+        Structural Toolboxを使っていて、
+        「ここが使いにくい」「この機能があると便利」
+        と感じたことを教えてください。
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Area / 該当する機能"
+      options:
+        - Installation / インストール
+        - GUI
+        - Modeling / モデリング
+        - Solver / 解析
+        - Input data / 入力データ
+        - Results / 結果表示
+        - Grasshopper
+        - Documentation / マニュアル
+        - New feature / 新機能
+        - Other / その他
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem or inconvenience / 現在困っていること"
+      description: |
+        What is difficult, inconvenient, or time-consuming in the current version?
+
+        現在のStructural Toolboxで、
+        不便・分かりにくい・時間がかかると感じる点を説明してください。
+      placeholder: "Example: It is difficult to identify which members have large bending moments."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Suggested improvement / 改善案"
+      description: |
+        How would you like Structural Toolbox to work?
+
+        どのように改善されると使いやすくなると思いますか？
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: "Example use case / 使用例"
+      description: |
+        Please give an example of when this feature would be useful.
+
+        どのような場面で役立つか、具体的な例があれば教えてください。
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: "Importance to you / あなたにとっての重要度"
+      description: "This is only to help us understand student needs."
+      options:
+        - Nice to have / あると便利
+        - Important / かなり欲しい
+        - Very important for my work / 現在の作業にかなり重要
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: "Additional information / その他"
+      description: "Screenshots, sketches, or additional comments can be added here."
+    validations:
+      required: false

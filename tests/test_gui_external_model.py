@@ -28,9 +28,12 @@ class _ExternalFolder(unittest.TestCase):
         shutil.copyfile(SAMPLE, self.dat)
         self.data_before = set(os.listdir(os.path.join(project_root(), "data")))
         model_json.set_external_models_allowed(True)
+        # The user picked this file in the open dialog.
+        model_json.register_external_model_path(self.dat)
 
     def tearDown(self):
         model_json.set_external_models_allowed(True)
+        model_json._EXTERNAL_MODEL_PATHS.clear()
         shutil.rmtree(os.path.dirname(self.folder), ignore_errors=True)
         self.assertEqual(set(os.listdir(os.path.join(project_root(), "data"))), self.data_before)
 
@@ -40,15 +43,21 @@ class _ExternalFolder(unittest.TestCase):
 
 class TestResolve(_ExternalFolder):
 
-    def test_absolute_dat_outside_the_project_is_used_in_place(self):
+    def test_picked_dat_outside_the_project_is_used_in_place(self):
         self.assertEqual(os.path.normcase(resolve_model_path(self.gui_path())), os.path.normcase(os.path.realpath(self.dat)))
 
-    def test_other_files_outside_the_project_are_refused(self):
+    def test_files_that_were_not_picked_are_refused(self):
+        other = os.path.join(self.folder, "other.dat")
+        shutil.copyfile(SAMPLE, other)
+        with self.assertRaises(ValueError):
+            resolve_model_path(other)
+
+    def test_only_dat_files_can_be_picked(self):
         other = os.path.join(self.folder, "notes.txt")
         with open(other, "w", encoding="utf-8") as fh:
             fh.write("x")
         with self.assertRaises(ValueError):
-            resolve_model_path(other)
+            model_json.register_external_model_path(other)
 
     def test_relative_paths_still_cannot_leave_the_project(self):
         with self.assertRaises(ValueError):
@@ -88,30 +97,32 @@ class TestApi(_ExternalFolder):
         with open(self.dat, encoding="utf-8") as fh:
             self.assertIn("# edited in place", fh.read())
 
-    def test_browse_returns_the_chosen_file(self):
-        with unittest.mock.patch("stb_gui.file_dialog.choose_dat_file", return_value=self.dat) as dialog:
-            r = self.client.post("/api/model/browse", json={"start": "examples/cantilever.dat"})
+    def test_open_starts_in_the_current_folder_and_returns_the_chosen_file(self):
+        model_json._EXTERNAL_MODEL_PATHS.clear()
+        with unittest.mock.patch("stb_gui.server.choose_dat_file", return_value=self.dat) as dialog:
+            r = self.client.post("/api/model/open", json={"start": "examples/cantilever.dat"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(os.path.normcase(r.json()["path"]), os.path.normcase(os.path.realpath(self.dat).replace("\\", "/")))
         start_dir = dialog.call_args[0][0]
         self.assertEqual(os.path.normcase(start_dir), os.path.normcase(os.path.join(os.path.realpath(project_root()), "examples")))
+        self.assertEqual(self.client.get("/api/model", params={"path": r.json()["path"], "solve": 0}).status_code, 200)
 
-    def test_browse_cancel(self):
-        with unittest.mock.patch("stb_gui.file_dialog.choose_dat_file", return_value=None):
-            r = self.client.post("/api/model/browse", json={})
+    def test_open_cancel(self):
+        with unittest.mock.patch("stb_gui.server.choose_dat_file", return_value=None):
+            r = self.client.post("/api/model/open", json={})
         self.assertEqual(r.status_code, 200)
-        self.assertIsNone(r.json()["path"])
+        self.assertTrue(r.json()["cancelled"])
 
-    def test_browse_without_a_dialog_falls_back(self):
+    def test_open_without_a_dialog_reports_why(self):
         from stb_gui.file_dialog import DialogUnavailable
 
-        with unittest.mock.patch("stb_gui.file_dialog.choose_dat_file", side_effect=DialogUnavailable("none")):
-            r = self.client.post("/api/model/browse", json={})
-        self.assertEqual(r.status_code, 501)
+        with unittest.mock.patch("stb_gui.server.choose_dat_file", side_effect=DialogUnavailable("none")):
+            r = self.client.post("/api/model/open", json={})
+        self.assertEqual(r.status_code, 503)
 
-    def test_browse_is_off_for_a_remote_server(self):
+    def test_open_is_off_for_a_remote_server(self):
         model_json.set_external_models_allowed(False)
-        r = self.client.post("/api/model/browse", json={})
+        r = self.client.post("/api/model/open", json={})
         self.assertEqual(r.status_code, 501)
 
 

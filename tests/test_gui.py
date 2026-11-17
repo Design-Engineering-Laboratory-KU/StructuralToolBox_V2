@@ -1,6 +1,8 @@
 import copy
+import json
 import os
 import sys
+import tempfile
 import unittest
 import unittest.mock
 
@@ -13,6 +15,7 @@ from stb_gui.model_json import (
     list_model_files,
     mdl_to_dict,
     normalize_model_relpath,
+    register_external_model_path,
     resolve_model_path,
 )
 from stb_engine import parse_input, solve_model
@@ -108,6 +111,25 @@ class TestGuiModelJson(unittest.TestCase):
         except ValueError:
             raised = True
         self.assertTrue(raised)
+
+    def test_registered_external_model_uses_sidecar_in_same_folder(self):
+        from stb_gui.project_view import default_project_dict_for_dat
+        from stb_project import load_project_for_dat, project_path_for_dat
+
+        with tempfile.TemporaryDirectory() as folder:
+            dat_path = os.path.join(folder, "outside.dat")
+            with open(dat_path, "w", encoding="utf-8") as fh:
+                fh.write("# external model\n")
+            project_path = project_path_for_dat(dat_path)
+            project_data = default_project_dict_for_dat("outside.dat")
+            project_data["building"]["name"] = "External sidecar"
+            with open(project_path, "w", encoding="utf-8") as fh:
+                json.dump(project_data, fh)
+
+            registered = register_external_model_path(dat_path)
+            self.assertEqual(resolve_model_path(registered), os.path.realpath(dat_path))
+            project = load_project_for_dat(registered, required=True)
+            self.assertEqual(project.building.name, "External sidecar")
 
     def test_normalize_model_relpath_windows_separators(self):
         self.assertEqual(
@@ -611,23 +633,36 @@ class TestGuiApi(unittest.TestCase):
             if os.path.isfile(full):
                 os.remove(full)
 
-    def test_api_model_open_upload(self):
+    def test_api_model_open_keeps_original_file_and_reads_sidecar(self):
         if self.client == None:
             self.skipTest("fastapi not installed")
-        import os
-        from stb_gui.model_json import project_root
-        text = "# upload test\n"
-        r = self.client.post("/api/model/open", json={"filename": "_gui_upload_test.dat", "text": text})
-        self.assertEqual(r.status_code, 200)
-        rel = r.json()["path"]
-        self.assertEqual(rel, "data/_gui_upload_test.dat")
-        full = os.path.join(project_root(), rel.replace("/", os.sep))
-        try:
-            with open(full, encoding="utf-8") as f:
-                self.assertEqual(f.read(), text)
-        finally:
-            if os.path.isfile(full):
-                os.remove(full)
+        from stb_gui.project_view import default_project_dict_for_dat
+        from stb_project import project_path_for_dat
+
+        with tempfile.TemporaryDirectory() as folder:
+            dat_path = os.path.join(folder, "picked.dat")
+            with open(dat_path, "w", encoding="utf-8") as fh:
+                fh.write("# picked in place\n")
+            project_data = default_project_dict_for_dat("picked.dat")
+            project_data["building"]["name"] = "Picked sidecar"
+            with open(project_path_for_dat(dat_path), "w", encoding="utf-8") as fh:
+                json.dump(project_data, fh)
+
+            with unittest.mock.patch("stb_gui.server.choose_dat_file", return_value=dat_path):
+                r = self.client.post("/api/model/open")
+
+            self.assertEqual(r.status_code, 200, r.text)
+            # The GUI uses forward slashes on every platform.
+            self.assertEqual(
+                os.path.normcase(os.path.normpath(r.json()["path"])),
+                os.path.normcase(os.path.realpath(dat_path)),
+            )
+            with open(dat_path, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "# picked in place\n")
+
+            project = self.client.get("/api/project", params={"path": r.json()["path"]})
+            self.assertEqual(project.status_code, 200, project.text)
+            self.assertIn("Picked sidecar", project.json()["title"])
 
     def test_api_shutdown_returns_ok(self):
         if self.client == None:
