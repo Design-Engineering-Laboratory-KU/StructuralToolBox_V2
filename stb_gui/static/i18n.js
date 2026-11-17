@@ -21,6 +21,7 @@ const JA = {
   "Loads…": "荷重…",
   "Practice…": "構造指標…",
   "Wall quantity…": "壁量計算…",
+  "Calculation book (PDF)": "計算書PDF",
   "Results": "結果",
   "Options": "オプション",
   "Theme": "テーマ",

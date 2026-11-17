@@ -289,6 +289,44 @@ GUI (Advanced), **Wall quantity…** opens the report for the current model
 `data/sample_wall_quantity_2f.dat` + `data/sample_wall_quantity_2f.project.json` (synthetic two-story house
 with a single-story 下屋, a braced wall, a 腰壁・垂れ壁 and column materials).
 
+## 構造計算書 (PDF)
+
+```bash
+stb report data/practice_wood_single_story.project.json -o book.pdf -v
+```
+
+出力先が `.pdf` なら PDF を作ります（`--format pdf` でも指定できます）。GUI では Advanced の **Calculation book (PDF)** から作成します。
+
+章立ては §1 一般事項から §15 エコーデータまでで、略伏図・略軸組図・応力図・変形図・支点反力図・検定比図と、応力表・変位表・木造部材の検定表を含みます。
+
+- 通り名は `grids` の名前を使います。`grids` が空のときは、柱の位置から `X1, X2, …` / `Y1, Y2, …` を自動で付けます。
+- 応力図以降の荷重ケースは `design_checks.wood.load_cases` です。未設定なら全荷重ケースを出力します。
+- `report.attachments` に PDF のパスを並べると、本文の後ろに結合します。相対パスは `project.json` のフォルダが基準です。
+
+```json
+"report": { "attachments": ["地盤改良検討書.pdf"] }
+```
+
+基礎盤の断面検定は未対応です。別途計算して `attachments` で添付してください。
+
+## 地震用重量と質量レベル (`load_conditions.seismic`)
+
+For Ai seismic weight aggregation (`stb loads seismic`), **Wi uses `LNME` TYPE 1 (DL) + TYPE 3 (LL(E))** on the referenced load cases. This can be overridden in `project.json` with **`load_conditions.seismic.weight_load_cases`**:
+
+```json
+"weight_load_cases": [
+  { "load_case": 0, "factor": 1.0, "role": "DL", "name": "DL" },
+  { "load_case": 3, "factor": 0.5, "role": "LL_E", "name": "LL(E)" }
+]
+```
+
+Mass levels are defined per `project.json` **`load_conditions.seismic_masses`** when present; each entry has a **`mass_role`**:
+
+- **`BASE_MASS`** (e.g. 1F floor supported on foundation, not on upper-structure diaphragms): included in ΣWi and αi denominator; **no DLOD** output.
+- **`DIAPHRAGM_MASS`** (upper floors / roof): included in ΣWi and αi; **Fi** is written to **`application_diaphragm`** as TYPE 6 DLOD AREA.
+
+If `seismic_masses` is omitted, legacy **`base_mass_policy`** redistribution applies. **DLOD AREA pressures use story seismic force Fi** (`Fi = Qi - Q(i+1)`; top story `Fi = Qi`), not layer shear Qi directly. Seismic force output uses **`LNME` TYPE 6 (E)** load cases; axis hints come from LABEL (`EQX` → +X, `EQY` → +Y).
+
 ## 木造部材の検定 (`design_checks.wood`)
 
 `materials` を1件以上設定すると、許容応力度計算で検定します。未設定のときは従来の簡易法
@@ -351,7 +389,83 @@ with a single-story 下屋, a braced wall, a 腰壁・垂れ壁 and column mater
 - 横座屈（梁）: Cs = √(le·d/b²)、Ck = √(0.6E/fb長期)。Cs≤10 で Cb=1、Cs≤Ck で 1−(Cs/Ck)⁴/3、それ以上で 0.4E/(Cs²·fb長期)。Cs>50 は NG。
 - たわみ（梁）: 材端と中央の曲げモーメントから部材弦に対する中央たわみを求めます（せん断変形は含みません）。片持ちは先端の相対変位です。
 
-未対応: 燃えしろ、接合金物、床、矩形以外の断面。たわみは節点間の部材ごとの評価で、クリープは制限値（例: 1/500）で考慮します。
+未対応: 燃えしろ、矩形以外の断面。たわみは節点間の部材ごとの評価で、クリープは制限値（例: 1/500）で考慮します。
+
+## 接合金物の検定 (`design_checks.wood.joint_*`)
+
+金物の許容応力を `joint_types` に登録し、部材の端部に `joint_assignments` で割り当てると検定します。
+
+```json
+"joint_types": [
+  {"name": "TH18CB", "compression_long": 14.9, "compression_short": 27.1, "tension_long": 14.9, "tension_short": 27.1,
+   "shear_long": 13.4, "shear_short": 24.3},
+  {"name": "HDP20-N", "compression_long": 140.2, "compression_short": 255.0, "tension_long": 14.0, "tension_short": 25.5,
+   "shear_long": 4.4, "shear_short": 8.0}
+],
+"joint_assignments": [
+  {"member_class": "beams", "i": "TH18CB", "j": "TH18CB"},
+  {"member_class": "columns", "top": "HDP20-N", "bottom": "HDP20-N"},
+  {"element_ids": [12], "i": "HDP20-N"}
+]
+```
+
+- 単位は kN と kN・m です。`shear_weak_*` / `moment_weak_*`（弱軸）を省略すると強軸と同じ値を使います。
+- `i`/`j` は梁の端部、`top`/`bottom` は柱頭・柱脚です。後の行が前の行を上書きします。
+- 積雪時の許容応力は、長期（積雪）＝長期×1.3、短期（積雪）＝短期×0.8 です。荷重ケースの区分は木造部材の検定と同じです。
+- `moment_*` が 0 の金物はピン接合として扱い、曲げは検定しません。0.05 kN・m を超える曲げが生じていれば注意を出します。
+- `joint_interaction` は組合せの検定方法です。`linear`（既定）は N/Na + M/Ma + Q/Qa ≤ 1.0、`none` は応力ごとの検定のみです。
+
+耐力壁周りの柱について、層間変形角 1/150 相当の設計応力を求める検討は未対応です。解析で得られた応力で検定します。
+
+## 床の検定
+
+`design_checks.wood.enabled` が true のとき、半剛床のダイアフラム（`DIAP` の TYPE=1 と `DMEM`）の面内せん断を自動で検定します。
+
+- 検定式は `QD = せん断流 × L`、`Qa = 1.96 × 床倍率 × L` です。せん断流は要素の応力を全体の X-Y 方向へ変換して求めます。
+- 床倍率は `DIAP` の MAG（SRC=1/2 のとき）を使います。`DMAT` を直接指定した床（SRC=0）は次のように与えます。
+
+```json
+"floor_multipliers": [{"diaphragm": 10, "multiplier": 2.0}]
+```
+
+- 計算書は柱の通りで区切った区画ごとに、区画内で最大の検定値となる要素の値を示します。三角形要素の応力なので、開口隅などでは局所的に大きくなることがあります。
+- 許容せん断力は荷重継続期間によらず同じ値です。
+- 剛床（TYPE=0）は面内せん断を算出しないため、検定の対象外です。
+
+## 基礎 (`foundation`)
+
+べた基礎の接地圧と転倒を検討します。計算書の §12 に出力します。
+
+```json
+"foundation": {
+  "type": "mat",
+  "soil": {"name": "砂質土", "bearing_long": 30.0, "bearing_short": 60.0, "young": 5000.0},
+  "concrete": {"name": "FC21", "fc": 21.0},
+  "extra_load": 1.0,
+  "first_floor_height": 400,
+  "embedment_depth": 300,
+  "slab_types": [
+    {"name": "FS1", "thickness": 220, "d_short": 140, "d_long": 123, "rebar": "SD295",
+     "short": {"end": "D13@300", "mid": "D10@300"}, "long": {"end": "D13@300", "mid": "D10@300"}}
+  ],
+  "panels": [{"slab": "FS1", "x": ["X1", "X2"], "y": ["Y1", "Y3"]}],
+  "beam_types": [
+    {"name": "FG1", "b": 150, "d": 700, "top": "1-D19", "bottom": "1-D19", "dt": 72,
+     "stirrup": "1-D10@200", "main_rebar": "SD345", "stirrup_rebar": "SD295"}
+  ],
+  "beam_lines": [{"beam": "FG1", "frame": "Y1", "span": ["X1", "X9"]}]
+}
+```
+
+- 通り名は `grids` の名前です。`grids` が空のときは計算書と同じ自動の名前（`X1, Y1, …`）を使います。
+- `level` を省略すると、最も低い支点の高さを基礎レベルとします。
+- 基礎自重 = 耐圧版（厚さ × 単位体積重量）＋ `extra_load` ＋ 基礎梁（幅 ×（せい − 最小の版厚）× 単位体積重量 × 長さ）です。単位は kN/m² と mm です。
+- 版ごとの接地圧は、支点反力を支点に接する版へ面積比で配分した値に、基礎自重の等分布圧を加えた値です。
+- 長期検定は `max(Lσ, avLσ) / Lqa`、短期検定は `Sσ / Sqa` です。荷重ケースの区分は木造検定と同じです。
+- 転倒は `MT < W × g` で検定します。`MT = Σ(水平力 × 支点からの高さ) + Q1 × (α + β)` で、α は `first_floor_height`（地上1階層の地盤面からの高さ）、β は `embedment_depth`（基礎底深さ）、単位は mm です。W は長期の建物重量（基礎自重を含む）、g は基礎の圧縮側最外端から重心までの距離です。
+- 塔状比が 2.5 を超え、かつ長期許容地耐力が 30 kN/m² 未満の方向は、短期接地圧を検討します。`σ0 > σb` なら `σ0 + σb`、それ以外は `αe × σ0` です。αe は地盤の引張を無視した中立軸から求めます。
+- `beam_lines` があれば基礎梁の検定も行います（§12.5）。常時は柱位置をピン支持とした梁に地反力を45度分割で作用させ、水平荷重時は支点反力の増分を地盤バネ（`soil.young`、省略時 5000）で支持した格子梁に作用させます。許容曲げは複筋断面（n=15）、短期設計用せん断力は `QL + 1.5·Q` です。鉄筋は SD295 と SD345 に対応します。付着と地盤バネの浮上りは未対応で、柱の引抜きが生じると警告を出します。
+- 解析モデルの基礎梁に自重を入力している場合は、反力に含まれるので `beam_lines` と二重に数えないよう注意してください。
 
 ## Python API
 

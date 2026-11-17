@@ -11,6 +11,9 @@
 #ifndef OutputDist
   #define OutputDist "dist"
 #endif
+#ifndef Edition
+  #error Pass the edition: /DEdition=Simple or /DEdition=Full
+#endif
 #ifndef BuildStamp
   #define BuildStamp GetDateTimeString('yyyyMMdd', '', '')
 #endif
@@ -28,6 +31,8 @@
 #define MyAppName "Structural Toolbox"
 #define MyAppPublisher "Structural Toolbox"
 #define MyAppLauncher "Start Structural Toolbox.bat"
+; Both editions share this id, so one replaces the other on upgrade. They cannot
+; sit side by side: the Grasshopper plugin records a single install location.
 #define MyAppId "{{9C4E2A1B-7D3F-4E86-A5B2-1C0D9E8F7A6B}"
 
 [Setup]
@@ -40,7 +45,7 @@ DefaultDirName={localappdata}\StructuralToolbox
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=no
 OutputDir={#OutputDist}
-OutputBaseFilename=StructuralToolbox_Setup_{#MyAppVersion}_{#BuildStamp}
+OutputBaseFilename=StructuralToolbox_{#Edition}_Setup_{#MyAppVersion}_{#BuildStamp}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

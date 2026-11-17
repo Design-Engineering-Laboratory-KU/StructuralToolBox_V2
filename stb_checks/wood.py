@@ -2,7 +2,7 @@ from dataclasses import dataclass, replace
 import math
 from typing import Optional, Tuple
 
-from stb_checks import wood_standard
+from stb_checks import wood_floors, wood_joints, wood_standard
 from stb_checks.wood_standard import WoodStandardElement, element_chord_deflection
 from stb_project import ProjectDefinition, WoodAllowableStresses, WoodMemberCondition
 
@@ -72,6 +72,8 @@ class WoodCheckSummary:
     status: str
     tables: WoodCheckTables
     method: str = METHOD_SIMPLIFIED
+    joint_checks: Tuple[wood_joints.WoodJointCheck, ...] = ()
+    floor_checks: Tuple[wood_floors.WoodFloorCheck, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -111,9 +113,11 @@ def build_wood_check_summary(mdl, project: ProjectDefinition):
 
     load_cases = _load_cases_to_check(mdl, project, warnings)
     load_case_indices = {lc: idx for idx, lc in enumerate(mdl.lcs)}
+    settings = project.design_checks.wood
+    durations = _load_case_durations(project, load_cases, warnings) if settings.materials or settings.joint_assignments else {}
     standard = None
-    if project.design_checks.wood.materials:
-        standard = _standard_context(mdl, project, load_cases, warnings)
+    if settings.materials:
+        standard = _standard_context(mdl, project, durations)
     else:
         warnings.append(SIMPLIFIED_METHOD_WARNING)
 
@@ -148,9 +152,28 @@ def build_wood_check_summary(mdl, project: ProjectDefinition):
     if not checks:
         warnings.append("No beam, column, or brace member classes were available for wood checks.")
 
-    max_ratio = max([c.combined_ratio for c in checks] + [wc.utilization_ratio for wc in wall_checks] + [0.0])
-    has_any = bool(checks or wall_checks)
-    status = _overall_status([c.status for c in checks] + [wc.status for wc in wall_checks]) if has_any else STATUS_WARN
+    joint_checks = wood_joints.build_joint_checks(
+        mdl, project, load_cases, load_case_indices, durations, project.member_classes, warnings
+    )
+    floor_checks = wood_floors.build_floor_checks(mdl, project, load_cases, load_case_indices, warnings)
+    max_ratio = max(
+        [c.combined_ratio for c in checks]
+        + [wc.utilization_ratio for wc in wall_checks]
+        + [j.max_ratio for j in joint_checks]
+        + [f.ratio for f in floor_checks]
+        + [0.0]
+    )
+    has_any = bool(checks or wall_checks or floor_checks)
+    status = (
+        _overall_status(
+            [c.status for c in checks]
+            + [wc.status for wc in wall_checks]
+            + [j.status for j in joint_checks]
+            + [f.status for f in floor_checks]
+        )
+        if has_any
+        else STATUS_WARN
+    )
     tables = _build_tables(checks, wall_checks, project)
     return WoodCheckSummary(
         element_checks=tuple(checks),
@@ -160,6 +183,8 @@ def build_wood_check_summary(mdl, project: ProjectDefinition):
         status=status,
         tables=tables,
         method=METHOD_SIMPLIFIED if standard is None else METHOD_STANDARD,
+        joint_checks=joint_checks,
+        floor_checks=floor_checks,
     )
 
 
@@ -171,7 +196,7 @@ def _overall_status(statuses):
     return STATUS_OK
 
 
-def _standard_context(mdl, project, load_cases, warnings):
+def _load_case_durations(project, load_cases, warnings):
     settings = project.design_checks.wood
     explicit = {d.load_case: d.duration for d in settings.load_case_durations}
     combinations = {c.load_case: c.duration for c in project.load_conditions.load_combinations}
@@ -182,6 +207,11 @@ def _standard_context(mdl, project, load_cases, warnings):
             warnings.append("Load case {0} has no duration; long-term allowables were used.".format(lc))
             duration = wood_standard.LONG_TERM
         durations[lc] = duration
+    return durations
+
+
+def _standard_context(mdl, project, durations):
+    settings = project.design_checks.wood
     return _StandardContext(
         materials={m.name: m for m in settings.materials},
         durations=durations,
@@ -623,13 +653,7 @@ def _wall_shear_from_equivalent_braces(mdl, w, clc, warnings):
 
 
 def _shear_panel_force(sp, clc):
-    dof = 0 if str(sp.direction).upper() == "X" else 1
-    d1 = float(sp.n1.disps[dof, clc]) if sp.n1.disps is not None else 0.0
-    d2 = float(sp.n2.disps[dof, clc]) if sp.n2.disps is not None else 0.0
-    d3 = float(sp.n3.disps[dof, clc]) if sp.n3.disps is not None else 0.0
-    d4 = float(sp.n4.disps[dof, clc]) if sp.n4.disps is not None else 0.0
-    delta = 0.5 * (d3 + d4) - 0.5 * (d1 + d2)
-    return float(sp.k) * delta * 1e-3  # N -> kN
+    return sp.shear_force(clc) * 1e-3  # N -> kN
 
 
 def _wall_check_to_dict(check):

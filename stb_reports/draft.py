@@ -54,6 +54,17 @@ def write_confirmation_draft(
     generated_at: Optional[datetime] = None,
     program_version: str = "",
 ):
+    fmt = output_format or ("pdf" if str(output_path).lower().endswith(".pdf") else project.report.format)
+    out_dir = os.path.dirname(os.path.abspath(output_path))
+    if out_dir != "" and not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
+    if fmt == "pdf":
+        from stb_reports.calc_book import write_calc_book_pdf
+
+        return write_calc_book_pdf(
+            output_path, mdl, project, generated_at=generated_at, program_version=program_version
+        )
+
     draft = build_confirmation_draft(
         mdl,
         project,
@@ -61,7 +72,6 @@ def write_confirmation_draft(
         generated_at=generated_at,
         program_version=program_version,
     )
-    fmt = output_format or project.report.format
     if fmt == "markdown":
         text = draft.markdown
     elif fmt == "html":
@@ -69,9 +79,6 @@ def write_confirmation_draft(
     else:
         raise ValueError("Unsupported report format: " + str(fmt))
 
-    out_dir = os.path.dirname(os.path.abspath(output_path))
-    if out_dir != "" and not os.path.isdir(out_dir):
-        os.makedirs(out_dir)
     f = open(output_path, "w", encoding="utf-8")
     try:
         f.write(text)

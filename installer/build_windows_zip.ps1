@@ -4,10 +4,13 @@
   Windows 用 ZIP（同梱 Python）を作成する
 
 .EXAMPLE
-  .\installer\build_windows_zip.ps1
-  .\installer\build_windows_zip.ps1 -SkipZip   # インストーラ用にフォルダだけ用意
+  .\installer\build_windows_zip.ps1 -Edition Simple
+  .\installer\build_windows_zip.ps1 -Edition Full -SkipZip   # インストーラ用にフォルダだけ用意
 #>
 param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('Simple', 'Full')]
+    [string]$Edition,
     [switch]$SkipZip
 )
 
@@ -17,7 +20,7 @@ $RepoRoot = Split-Path -Parent $InstallerDir
 $DistDir = Join-Path $InstallerDir 'dist'
 $BuildStamp = Get-Date -Format 'yyyyMMdd'
 $AppVersion = (Get-Content -LiteralPath (Join-Path $RepoRoot 'VERSION') -Raw).Trim()
-$Name = "StructuralToolbox_Windows_${AppVersion}_$BuildStamp"
+$Name = "StructuralToolbox_Windows_${Edition}_${AppVersion}_$BuildStamp"
 $WorkDir = Join-Path $DistDir "_build\$Name"
 $ZipPath = Join-Path $DistDir "$Name.zip"
 $Version = (Get-Content -LiteralPath (Join-Path $InstallerDir 'PYTHON_EMBED_VERSION') -Raw).Trim()
@@ -135,7 +138,7 @@ function Include-Wheels {
     param([string]$Dest)
     $script = Join-Path $InstallerDir 'fetch_wheels.py'
     Write-Host 'Collecting bundled libraries (wheels) ...'
-    & py -3 $script windows --payload $Dest
+    & py -3 $script windows --edition ($Edition.ToLowerInvariant()) --payload $Dest
     if ($LASTEXITCODE -ne 0) {
         throw 'Failed to collect wheels for the installer payload'
     }
@@ -171,6 +174,10 @@ Write-Host "Building payload -> $WorkDir"
 New-Item -ItemType Directory -Path (Split-Path -Parent $WorkDir) -Force | Out-Null
 
 Copy-Payload -Dest $WorkDir
+& py -3 (Join-Path $InstallerDir 'editions.py') ($Edition.ToLowerInvariant()) --payload $WorkDir
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to prepare the $Edition edition"
+}
 Install-EmbedPython -TargetDir $WorkDir
 Include-SetupScript -Dest $WorkDir
 Include-Wheels -Dest $WorkDir
@@ -217,4 +224,4 @@ if (-not $SkipZip) {
 
 Write-Host ""
 Write-Host "Payload folder: $WorkDir"
-Write-Host "Next: .\installer\build_windows_installer.ps1 -SourceDir `"$WorkDir`""
+Write-Host "Next: .\installer\build_windows_installer.ps1 -Edition $Edition -SourceDir `"$WorkDir`""

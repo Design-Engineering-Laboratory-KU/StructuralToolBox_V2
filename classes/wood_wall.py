@@ -466,16 +466,69 @@ class WoodShearPanel:
         self.k = float(_k_n_per_m)  # [N/m]
         self.auto_generated = False
 
-    def dof(self):
-        if self.direction == "X":
-            return 0
-        if self.direction == "Y":
-            return 1
-        raise ValueError("WoodShearPanel direction must be X or Y")
-
     def nodes(self):
         return [self.n1, self.n2, self.n3, self.n4]
 
+    def _plane(self):
+        """In-plane unit vectors a (along the bottom edge) and b (up the panel), top nodes, L, H."""
+
+        nodes = sorted(self.nodes(), key=lambda n: n.z)
+        bottom, top = nodes[:2], nodes[2:]
+        edge = (bottom[1].x - bottom[0].x, bottom[1].y - bottom[0].y, bottom[1].z - bottom[0].z)
+        edge_length = math.sqrt(sum(v * v for v in edge))
+        if edge_length <= 0.0:
+            raise ValueError("WoodShearPanel {0} has no width at the bottom".format(self.wall_id))
+        a = tuple(v / edge_length for v in edge)
+
+        rise = tuple(
+            (getattr(top[0], c) + getattr(top[1], c) - getattr(bottom[0], c) - getattr(bottom[1], c)) / 2.0
+            for c in "xyz"
+        )
+        along = sum(r * v for r, v in zip(rise, a))
+        offset = tuple(r - along * v for r, v in zip(rise, a))
+        height = math.sqrt(sum(v * v for v in offset))
+        if height <= 0.0:
+            raise ValueError("WoodShearPanel {0} corners do not form a wall".format(self.wall_id))
+        b = tuple(v / height for v in offset)
+
+        span = abs(sum((getattr(top[1], c) - getattr(top[0], c)) * v for c, v in zip("xyz", a)))
+        if span <= 0.0:
+            raise ValueError("WoodShearPanel {0} has no width at the top".format(self.wall_id))
+        return a, b, top, span, height
+
     def stiffness_weights(self):
-        # delta = average(top) - average(bottom)
-        return [-0.5, -0.5, 0.5, 0.5]
+        """Weights of (ux, uy, uz) at each node in the panel's shear deformation.
+
+        delta = (avg top - avg bottom along a) + (H/L)(right top - left top along b)
+        with a along the bottom edge and b in the panel plane, which is vertical for
+        a wall. Rigid motions give zero, so the panel stays in moment equilibrium.
+        The couple enters at the top corners, so each end column carries the full
+        Q*H/L over its height, as with an equivalent brace.
+        """
+
+        a, b, top, span, height = self._plane()
+        ratio = height / span
+        right = max(top, key=lambda n: n.x * a[0] + n.y * a[1] + n.z * a[2])
+        weights = []
+        for node in self.nodes():
+            is_top = any(node is n for n in top)
+            horizontal = 0.5 if is_top else -0.5
+            across = 0.0
+            if is_top:
+                across = ratio if node is right else -ratio
+            weights.extend(horizontal * a[i] + across * b[i] for i in range(3))
+        return weights
+
+    def shear_force(self, clc):
+        """Panel shear force [N] for a computational load case."""
+
+        weights = self.stiffness_weights()
+        delta = 0.0
+        for i, node in enumerate(self.nodes()):
+            for d in range(3):
+                delta += weights[3 * i + d] * float(node.disps[d, clc])
+        return self.k * delta
+
+    def direction_matches_wall(self):
+        a = self._plane()[0]
+        return abs(a[0] if self.direction == "X" else a[1]) >= math.sqrt(0.5) * math.hypot(a[0], a[1])

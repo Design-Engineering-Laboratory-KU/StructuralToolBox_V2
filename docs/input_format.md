@@ -411,6 +411,17 @@ EA = K * d^3 / L^2
 
 For an X-brace pair, each brace uses half of this `EA`.
 
+For `MODEL=1`, the panel is a spring of stiffness `K` on the shear deformation
+
+```
+delta = (avg top - avg bottom along a) + (H/L) * (right top - left top along b)
+```
+
+where `a` runs along the bottom edge and `b` lies in the panel plane perpendicular to it
+(vertical for a wall). The panel acts along its own edge, and each column at the wall ends carries the full
+overturning force `Q*H/L` over its height. Every corner node needs a member or a vertical support. `DIR` is
+kept for reporting; a warning is issued when it differs from the wall line.
+
 Users input rated-wall properties (`M, DIR, RA`) and corner nodes (`N1..N4`).
 `L` and `H` may be omitted; they are then computed from the node rectangle
 (bottom/top corners are identified by Z). When `L` or `H` is provided explicitly,
@@ -459,22 +470,6 @@ LNME, 5, 7, COMB1
 ```
 
 Legacy text names (`DL`, `EQX`, etc.) in the TYPE column are still accepted and mapped to the codes above.
-
-For Ai seismic weight aggregation (`stb loads seismic`), **Wi uses TYPE 1 (DL) + TYPE 3 (LL(E))** on the referenced load cases. This can be overridden in `project.json` with **`load_conditions.seismic.weight_load_cases`**:
-
-```json
-"weight_load_cases": [
-  { "load_case": 0, "factor": 1.0, "role": "DL", "name": "DL" },
-  { "load_case": 3, "factor": 0.5, "role": "LL_E", "name": "LL(E)" }
-]
-```
-
-Mass levels are defined per `project.json` **`load_conditions.seismic_masses`** when present; each entry has a **`mass_role`**:
-
-- **`BASE_MASS`** (e.g. 1F floor supported on foundation, not on upper-structure diaphragms): included in ΣWi and αi denominator; **no DLOD** output.
-- **`DIAPHRAGM_MASS`** (upper floors / roof): included in ΣWi and αi; **Fi** is written to **`application_diaphragm`** as TYPE 6 DLOD AREA.
-
-If `seismic_masses` is omitted, legacy **`base_mass_policy`** redistribution applies. **DLOD AREA pressures use story seismic force Fi** (`Fi = Qi - Q(i+1)`; top story `Fi = Qi`), not layer shear Qi directly. Seismic force output uses **TYPE 6 (E)** load cases; axis hints come from LABEL (`EQX` → +X, `EQY` → +Y).
 
 ### `LCMB` — load combination
 

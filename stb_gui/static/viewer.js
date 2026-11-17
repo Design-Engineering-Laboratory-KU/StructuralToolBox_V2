@@ -190,6 +190,7 @@ const el = {
   btnLoads: document.getElementById("btnLoads"),
   btnPractice: document.getElementById("btnPractice"),
   btnWallQuantity: document.getElementById("btnWallQuantity"),
+  btnCalcBook: document.getElementById("btnCalcBook"),
   btnOutput: document.getElementById("btnOutput"),
   lcSelect: document.getElementById("lcSelect"),
   defFactor: document.getElementById("defFactor"),
@@ -7133,7 +7134,7 @@ async function loadWindVisualForCurrentModel() {
   windVisualData = null;
   selectedWindCaseId = null;
   windVisualStatus = "idle";
-  if (!path) {
+  if (!path || !hasFullFeatures()) {
     windVisualStatus = "loaded";
     populateWindCaseSelect();
     updateWindControlsAvailability();
@@ -7160,7 +7161,7 @@ async function loadWindVisualForCurrentModel() {
 async function loadPracticeSummaryForCurrentModel() {
   const path = getCurrentModelPath();
   practiceSummaryData = null;
-  if (!path || !currentModel || !analysisComplete(currentModel)) return;
+  if (!hasFullFeatures() || !path || !currentModel || !analysisComplete(currentModel)) return;
   try {
     const view = await fetchApiJson("/api/practice/summary?path=" + encodeURIComponent(path));
     if (view && view.eccentricity_rows && view.eccentricity_rows.length) {
@@ -10158,6 +10159,31 @@ function openWallQuantityReportWindow() {
   setStatus(path + " — wall quantity report opened");
 }
 
+async function downloadCalcBook() {
+  const path = getCurrentModelPath();
+  if (!path) {
+    setStatus("Open a model before creating the calculation book");
+    return;
+  }
+  setStatus(path + " — creating the calculation book…");
+  try {
+    const res = await fetch(guiApiUrl("/api/report/pdf?path=" + encodeURIComponent(path), window));
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || res.statusText);
+    }
+    const url = URL.createObjectURL(await res.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = path.split("/").pop().replace(/\.dat$/i, "") + "_計算書.pdf";
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatus(path + " — calculation book created");
+  } catch (ex) {
+    setStatus("Error: " + ex.message);
+  }
+}
+
 window.openProjectWindow = openProjectWindow;
 window.reloadCurrentModel = () => loadSelectedModel(false, { keepCamera: true });
 window.refreshWindVisual = () => loadWindVisualForCurrentModel().then(function () {
@@ -10893,13 +10919,20 @@ if (el.btnClearSelection) {
 }
 
 el.btnInput.addEventListener("click", () => openInputWindow());
-el.btnProject.addEventListener("click", () => openProjectWindow());
-el.btnLoads.addEventListener("click", () => openLoadsVerifyWindow());
+if (el.btnProject) {
+  el.btnProject.addEventListener("click", () => openProjectWindow());
+}
+if (el.btnLoads) {
+  el.btnLoads.addEventListener("click", () => openLoadsVerifyWindow());
+}
 if (el.btnPractice) {
   el.btnPractice.addEventListener("click", () => openPracticeVerifyWindow());
 }
 if (el.btnWallQuantity) {
   el.btnWallQuantity.addEventListener("click", () => openWallQuantityReportWindow());
+}
+if (el.btnCalcBook) {
+  el.btnCalcBook.addEventListener("click", () => downloadCalcBook());
 }
 el.btnOutput.addEventListener("click", () => openResultsWindow());
 el.lcSelect.addEventListener("change", () => {
@@ -11436,7 +11469,13 @@ function initUiTheme() {
   applyUiTheme(loadUiTheme());
 }
 
+function hasFullFeatures() {
+  // The Simple edition's page has no mode switch and its server has no Full routes.
+  return !!el.btnGuiMode;
+}
+
 function loadGuiMode() {
+  if (!hasFullFeatures()) return "simple";
   try {
     return localStorage.getItem(GUI_MODE_STORAGE_KEY) === "advanced" ? "advanced" : "simple";
   } catch (e) {

@@ -224,8 +224,10 @@ def install_libraries(pip_args: list[str], offline: bool, silent: bool) -> None:
     )
     # The .venv interpreter ignores PYTHONPATH (see pin_venv_stdlib), which pip's
     # isolated build environment relies on, so build with the .venv's setuptools.
+    # Only the Full edition ships the calculation book and its libraries.
+    extras = ".[gui,report]" if (ROOT / "stb_reports").is_dir() else ".[gui]"
     run(
-        [str(python), "-m", "pip", "install"] + pip_args + ["--no-build-isolation", "-e", ".[gui]"],
+        [str(python), "-m", "pip", "install"] + pip_args + ["--no-build-isolation", "-e", extras],
         "ライブラリのインストールに失敗しました。" + hint,
         silent,
     )

@@ -546,6 +546,8 @@ def ReadLines(_lns):
         else:
             w.generate_mvp_equivalent_braces(nds, mats, secs, elms, ejnts, dcons)
 
+    input_warnings.extend(_shear_panel_warnings(wshears, elms, cons, nds_by_id))
+
     date_input = str(datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
                      
     mdl = Mdl(
@@ -556,6 +558,26 @@ def ReadLines(_lns):
     )
 
     return mdl
+
+def _shear_panel_warnings(wshears, elms, cons, nodes_by_id):
+    connected = {id(e.n0) for e in elms} | {id(e.n1) for e in elms}
+    vertically_fixed = {id(nodes_by_id[c.nid]) for c in cons if c.csts[2] and c.nid in nodes_by_id}
+    warnings = []
+    for panel in wshears:
+        if not panel.direction_matches_wall():
+            warnings.append(
+                "WOOD_RATED_WALL {0} ({1}): DIR={2} differs from the wall line; the panel acts along the wall.".format(
+                    panel.wall_id, panel.name, panel.direction
+                )
+            )
+        free = [n.id for n in panel.nodes() if id(n) not in connected and id(n) not in vertically_fixed]
+        if free:
+            warnings.append(
+                "WOOD_RATED_WALL {0} ({1}): corner node(s) {2} have no member or vertical support; "
+                "the analysis may be unstable.".format(panel.wall_id, panel.name, ", ".join(str(i) for i in free))
+            )
+    return warnings
+
 
 def RegisterInputData(_mdl: Mdl):
     

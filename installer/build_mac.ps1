@@ -4,14 +4,20 @@
   Mac 用インストーラ（tar.gz）を作成する。
 
 .EXAMPLE
-  .\installer\build_mac.ps1
+  .\installer\build_mac.ps1 -Edition Simple
+  .\installer\build_mac.ps1 -Edition Full
 #>
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('Simple', 'Full')]
+    [string]$Edition
+)
 $ErrorActionPreference = 'Stop'
 $Py = Join-Path $PSScriptRoot 'build_mac.py'
 # Child tools (dotnet, pip) print Japanese text; the default cp932 decoding
 # in Python's reader threads fails on it.
 $env:PYTHONUTF8 = '1'
-& py -3 $Py
+& py -3 $Py --edition ($Edition.ToLowerInvariant())
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
