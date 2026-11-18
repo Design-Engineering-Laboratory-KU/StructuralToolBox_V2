@@ -22,7 +22,7 @@ groups appear in workflow order. Items after `/` sit on the lower row of the gro
 | `06.Assemble` | STB Assemble Model / STb Assembly from file, STB DAT Nodes, STB DAT Beams |
 | `07.Analyze` | STb Analyze / STb Analyze from file |
 | `08.Post` | Displacements, Reactions, Forces / Deformed Shape, Force Diagram, Stress |
-| `99.Info` | STB Load Cases, View Support Condition, View Load, View Section / Info Element, Info Material, Info Section, Info Load, Info Support, Info Model, Info Node |
+| `99.Info` | STB Load Cases, View Support Condition, View Load, View Section, View Local Axis / Info Element, Info Material, Info Section, Info Load, Info Support, Info Model, Info Node |
 
 ## Icons
 
@@ -72,6 +72,10 @@ python tools/icons/build_gh_icons.py
   The optional `Name` list limits the preview to the named elements, as in `STB Force Diagram`.
   `Segments`, `Stress`, `Colors`, and `Element IDs` are trees with one branch per element, using
   the same `{Element ID}` / `{LC;Element ID}` paths as `STB Forces`.
+- `View Local Axis`: input `STb Model` and/or `Element` list, optional `Name` list → previews each
+  member's local axes at mid-span (x red, y green, z blue) with the solver's rule
+  (`StbMemberAxes`: x from start to end node, y and z from `Beta`). `Size` 0 scales the arrows to
+  0.2 × the median member length. Outputs the local `Planes` and the `x`, `y`, `z` vectors.
 - `STB DAT Nodes`: reads original node points from an existing `.dat` file
 - `STB DAT Beams`: reads element connectivity from an existing `.dat` file
 - `STB Element`: input `Name`, `Line`, `Section`, `Beta` → output typed `Element`

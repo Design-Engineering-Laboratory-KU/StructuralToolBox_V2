@@ -40,6 +40,7 @@ namespace StbGrasshopper
         public static Bitmap ViewSupport => Get("ViewSupport");
         public static Bitmap ViewLoad => Get("ViewLoad");
         public static Bitmap ViewSection => Get("ViewSection");
+        public static Bitmap ViewLocalAxis => Get("ViewLocalAxis");
         public static Bitmap LoadContainer => Get("LoadContainer");
         public static Bitmap MaterialContainer => Get("MaterialContainer");
         public static Bitmap SectionContainer => Get("SectionContainer");

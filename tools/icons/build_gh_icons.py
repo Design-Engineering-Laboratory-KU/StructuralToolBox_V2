@@ -274,6 +274,23 @@ def grid_frame():
     return img
 
 
+def local_axis():
+    img = canvas()
+    d = ImageDraw.Draw(img)
+    # A member (blue bar) and the local x / y / z triad drawn from its node.
+    ox, oy = 8.6, 13.6
+    ux, uy = 0.87, -0.49
+    nx, ny = -uy * 1.5, ux * 1.5
+    start = (ox - ux * 9.0, oy - uy * 9.0)
+    shape(d, [(start[0] + nx, start[1] + ny), (ox + nx, oy + ny),
+              (ox - nx, oy - ny), (start[0] - nx, start[1] - ny)], width=1.3)
+    arrow(d, (ox, oy), (ox + ux * 11.0, oy + uy * 11.0), width=1.5, head=3.6, spread=3.2)
+    arrow(d, (ox, oy), (ox, 1.4), width=1.5, head=3.6, spread=3.2)
+    arrow(d, (ox, oy), (1.6, 6.4), width=1.5, head=3.6, spread=3.2)
+    disc(d, ox, oy, 2.0, width=1.3)
+    return img
+
+
 DRAWINGS = {
     "GridFrame": grid_frame,
     "LineLoad": line_load,
@@ -286,7 +303,10 @@ DRAWINGS = {
     "LoadCases": load_cases,
 }
 
-BADGED_DRAWINGS = {"DatNodes": (dat_nodes, "file")}
+BADGED_DRAWINGS = {
+    "DatNodes": (dat_nodes, "file"),
+    "ViewLocalAxis": (local_axis, "view"),
+}
 
 
 def main():
